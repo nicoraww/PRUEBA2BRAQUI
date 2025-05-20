@@ -13,6 +13,11 @@ import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Brachyanalysis")
 
+# Logo en esquina superior izquierda
+col_logo, _ = st.columns([1, 10])
+with col_logo:
+    st.image("logo.png", width=80)
+
 # Estilos
 st.markdown("""
 <style>
@@ -47,8 +52,7 @@ def apply_window_level(image, ww, wc):
     mn = wc - ww/2.0
     mx = wc + ww/2.0
     win = np.clip(img_f, mn, mx)
-    out = (win - mn) / (mx - mn) if mx!=mn else np.zeros_like(img_f)
-    return out
+    return (win - mn) / (mx - mn) if mx!=mn else np.zeros_like(img_f)
 
 # Extraer ZIP
 dirname = None
@@ -78,56 +82,30 @@ if dirname:
     else:
         st.sidebar.error("No se encontraron DICOM válidos en el ZIP cargado.")
 
-# Si hay imagen cargada
-if img is not None:
-    n_ax, n_cor, n_sag = img.shape
-    mn, mx = float(img.min()), float(img.max())
-    default_ww, default_wc = mx-mn, mn + (mx-mn)/2
-
-    # Sidebar opciones avanzadas
-    st.sidebar.markdown('## Selección de cortes')
-    sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
-    if sync:
-        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial','Coronal','Sagital'))
-        lims = {'Axial':n_ax-1,'Coronal':n_cor-1,'Sagital':n_sag-1}
-        mid = {'Axial':n_ax//2,'Coronal':n_cor//2,'Sagital':n_sag//2}
-        slice_idx = st.sidebar.slider('Corte (sincronizado)', 0, lims[corte], mid[corte])
-        slice_idx = st.sidebar.number_input('Corte (sincronizado)', 0, lims[corte], int(slice_idx))
-    else:
-        corte = st.sidebar.radio('Selecciona el tipo de corte', ('Axial','Coronal','Sagital'))
-        if corte=='Axial': slice_idx = st.sidebar.slider('Índice Axial', 0, n_ax-1, n_ax//2)
-        if corte=='Coronal': slice_idx = st.sidebar.slider('Índice Coronal', 0, n_cor-1, n_cor//2)
-        if corte=='Sagital': slice_idx = st.sidebar.slider('Índice Sagital', 0, n_sag-1, n_sag//2)
-
-    show_3d = st.sidebar.checkbox('Mostrar visualización 3D', value=True)
-    invert = st.sidebar.checkbox('Invertir colores (Negativo)', value=False)
-    window_type = st.sidebar.selectbox('Tipo de ventana', ('Default','Abdomen','Hueso','Pulmón'))
-    # Ajustar WW/WC por presets
-    if window_type=='Default': ww,wc = default_ww, default_wc
-    elif window_type=='Abdomen': ww,wc = 400,40
-    elif window_type=='Hueso': ww,wc = 2000,500
-    elif window_type=='Pulmón': ww,wc = 1500,-600
-    else: ww,wc = default_ww, default_wc
-
-    # Preparar cortes 2D
-    axial = img[slice_idx,:,:] if corte=='Axial' else img[n_ax//2,:,:]
-    coronal = img[:,slice_idx,:] if corte=='Coronal' else img[:,n_cor//2,:]
-    sagital = img[:,:,slice_idx] if corte=='Sagital' else img[:,:,n_sag//2]
-    cortes = [('Axial',axial), ('Coronal',coronal), ('Sagital',sagital)]
-
+# Mostrar tres vistas (axial, coronal, sagital) sin panel de selección
+def show_views(volume):
+    n_ax, n_cor, n_sag = volume.shape
+    # Índices centrales
+    ia, ic, is_ = n_ax//2, n_cor//2, n_sag//2
+    views = [
+        ('Axial', volume[ia, :, :]),
+        ('Coronal', volume[:, ic, :]),
+        ('Sagital', volume[:, :, is_])
+    ]
     cols = st.columns(3)
-    for col,(name,mat) in zip(cols,cortes):
+    for col, (name, mat) in zip(cols, views):
         with col:
-            st.markdown(f"*{name}*")
-            fig,ax = plt.subplots()
+            st.markdown(f"**{name}**")
+            fig, ax = plt.subplots()
             ax.axis('off')
-            norm = apply_window_level(mat, ww, wc)
-            if invert: norm = 1 - norm
+            norm = apply_window_level(mat, float(mat.max()-mat.min()), float((mat.max()+mat.min())/2))
             ax.imshow(norm, cmap='gray', origin='lower')
             st.pyplot(fig)
 
-    # Visualización 3D
-    if show_3d:
+if img is not None:
+    show_views(img)
+    # Opción de vista 3D still in sidebar
+    if st.sidebar.checkbox('Mostrar visualización 3D', value=True):
         target=(64,64,64)
         resized = resize(original, target, anti_aliasing=True)
         x,y,z = np.mgrid[0:target[0],0:target[1],0:target[2]]
