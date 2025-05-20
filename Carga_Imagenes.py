@@ -912,16 +912,6 @@ try:
                     if fig_3d:
                         st.plotly_chart(fig_3d, use_container_width=True)
 
-                # Generar código FreeCAD
-                needle_code = ""
-                needle_positions_str = ""
-                for i, (entry, traj) in enumerate(zip(st.session_state.needle_entries, st.session_state.needle_trajectories)):
-                    feasible = traj['feasible']
-                    x, y = entry[0], entry[1]
-                    angle_adj = traj['angle_adjustment']
-                    needle_positions_str += f"  - Aguja {i+1}: (x={x:.2f}, y={y:.2f}, z=0), Ángulo ajuste: {angle_adj}°, {'Válida' if feasible else 'Inválida'}\n"
-                    if feasible:
-                        needle_code += f"""
 # Aguja {i+1}
 needle_{i+1} = Part.makeCylinder({needle_diameter/2}, {longitud_mm*1.2}, App.Vector({x}, {y}, -{longitud_mm*0.1}), App.Vector(0, 0, 1))
 cylinder = cylinder.cut(needle_{i+1})
