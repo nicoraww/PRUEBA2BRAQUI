@@ -26,7 +26,7 @@ st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
 st.sidebar.markdown('<p class="sidebar-title">Configuración DICOM</p>', unsafe_allow_html=True)
 zip_file = st.sidebar.file_uploader("Selecciona ZIP con tus archivos DICOM", type="zip")
 
-@st.cache_data
+@st.cache(suppress_st_warning=True, allow_output_mutation=True)
 def load_first_series(uploaded):
     tmpdir = tempfile.mkdtemp()
     with zipfile.ZipFile(io.BytesIO(uploaded.read()), 'r') as zf:
@@ -66,6 +66,10 @@ def render_slice(slice2d, ww, wl):
 
 # Mostrar cuadrícula de vistas 2D
 if img is not None:
+    # Asegurar que el volumen sea 3D (incluir dimensión de slices)
+    if img.ndim == 2:
+        img = img[np.newaxis, :, :]
+    nz, ny, nx = img.shape
     nz, ny, nx = img.shape
     # Sliders de cortes
     st.sidebar.subheader('Cortes')
