@@ -68,18 +68,22 @@ def render_slice(slice2d, ww, wl):
     return fig
 
 # Mostrar cuadrícula de vistas 2D
-if img is not None:
-    # Asegurar que el volumen sea 3D (incluir dimensión de slices)
-    if img.ndim == 2:
-        img = img[np.newaxis, :, :]
-        nz, ny, nx = img.shape
-    # Sliders de cortes
-    st.sidebar.subheader('Cortes')
-    z_ix = st.sidebar.slider('Axial', 0, nz-1, nz//2)
-    y_ix = st.sidebar.slider('Coronal', 0, ny-1, ny//2)
-    x_ix = st.sidebar.slider('Sagital', 0, nx-1, nx//2)
+    if img is not None:
+        # Asegurar que el volumen tenga al menos 3 dimensiones
+        if img.ndim == 2:
+            img = img[np.newaxis, :, :]
+        elif img.ndim > 3:
+            # Si lleva dimensión de tiempo u otra, descartarla
+            img = img[0]
+        nz, ny, nx = img.shape  # Definir dimensiones siempre
 
-    # Controles de ventana/nivel
+        # Sliders de cortes
+        st.sidebar.subheader('Cortes')
+        z_ix = st.sidebar.slider('Axial', 0, nz-1, nz//2)
+        y_ix = st.sidebar.slider('Coronal', 0, ny-1, ny//2)
+        x_ix = st.sidebar.slider('Sagital', 0, nx-1, nx//2)
+
+    # Controles de ventana/nivel/nivel
     st.sidebar.subheader('Ventana y Nivel (WW/WL)')
     min_val, max_val = float(img.min()), float(img.max())
     default_ww = max_val - min_val if max_val>min_val else 1.0
