@@ -167,7 +167,7 @@ st.markdown("""
      - Alejandra Montiel
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
-     - Maria Camila Diaz- Maria Paula Jaimes
+     - Maria Camila Diaz
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Paula Jaimes
