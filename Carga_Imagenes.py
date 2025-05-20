@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="BrachyCervix")
 
-# Logo en esquina superior izquierda (más grande)
+# Logo en esquina superior izquierda
 col1, col2 = st.columns([5, 15])
 with col1:
     st.image("Banner.png", width=500)
@@ -121,7 +121,7 @@ if img is not None:
     cols = st.columns(3)
     for col,(name,mat) in zip(cols,cortes):
         with col:
-            st.markdown(f"**{name}**")
+            st.markdown(f"{name}")
             fig,ax = plt.subplots()
             ax.axis('off')
             norm = apply_window_level(mat, ww, wc)
@@ -129,17 +129,42 @@ if img is not None:
             ax.imshow(norm, cmap='gray', origin='lower')
             st.pyplot(fig)
 
-    # Visualización 3D
+    # Visualización 3D con puntos y líneas agregables
     if show_3d:
-        target=(64,64,64)
-        resized = resize(original, target, anti_aliasing=True)
-        x,y,z = np.mgrid[0:target[0],0:target[1],0:target[2]]
-        fig3d = go.Figure(data=go.Volume(
-            x=x.flatten(), y=y.flatten(), z=z.flatten(),
+        from skimage.measure import marching_cubes
+        resized = resize(original, (64, 64, 64), anti_aliasing=True)
+
+        if 'points' not in st.session_state:
+            st.session_state['points'] = []
+        if 'lines' not in st.session_state:
+            st.session_state['lines'] = []
+
+        with st.expander("Agregar punto 3D"):
+            x = st.number_input("X", 0.0, 64.0, 32.0)
+            y = st.number_input("Y", 0.0, 64.0, 32.0)
+            z = st.number_input("Z", 0.0, 64.0, 32.0)
+            if st.button("Agregar Punto"):
+                st.session_state['points'].append((x, y, z))
+
+        if len(st.session_state['points']) >= 2:
+            st.selectbox("Seleccionar primer punto", options=list(range(len(st.session_state['points']))), key='p1')
+            st.selectbox("Seleccionar segundo punto", options=list(range(len(st.session_state['points']))), key='p2')
+            if st.button("Agregar línea"):
+                st.session_state['lines'].append((st.session_state['points'][st.session_state['p1']], st.session_state['points'][st.session_state['p2']]))
+
+        xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
+        fig3d = go.Figure(data=[go.Volume(
+            x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
             value=resized.flatten(),
-            opacity=0.1, surface_count=15, colorscale='Gray'
-        ))
-        fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
+            opacity=0.1, surface_count=15, colorscale='Gray')
+        ])
+
+        for pt in st.session_state['points']:
+            fig3d.add_trace(go.Scatter3d(x=[pt[0]], y=[pt[1]], z=[pt[2]], mode='markers', marker=dict(size=5, color='red')))
+        for a, b in st.session_state['lines']:
+            fig3d.add_trace(go.Scatter3d(x=[a[0], b[0]], y=[a[1], b[1]], z=[a[2], b[2]], mode='lines', line=dict(color='blue')))
+
+        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
 
@@ -149,10 +174,10 @@ st.markdown("""
 <hr>
 <div style="text-align:center;color:#28aec5;font-size:50px;">
     BrachyCervix -
-    Semiautomátización y Visor para procesos de Braquiterapia enfocados en el Cervix
+    Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
-    Proyecto asigantura medialab 3
+    Proyecto asignatura medialab 3
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     Universidad EAFIT 
@@ -162,7 +187,7 @@ st.markdown("""
     Clinica Las Américas AUNA 
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Nicolás Ramírez 
+    - Nicolás Ramirez 
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
      - Alejandra Montiel
