@@ -2,934 +2,148 @@ import os
 import io
 import zipfile
 import tempfile
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 import SimpleITK as sitk
-import pydicom
-import matplotlib.patches as patches
+from skimage.transform import resize
 import plotly.graph_objects as go
-import traceback
 
-# Configuración de Streamlit
-st.set_page_config(page_title="Brachyanalysis", layout="wide")
+st.set_page_config(layout="wide", page_title="Brachyanalysis")
 
-# --- CSS personalizado ---
+# Estilos
 st.markdown("""
 <style>
-    .giant-title { color: #28aec5; font-size: 64px; text-align: center; margin-bottom: 30px; }
-    .sidebar-title { color: #28aec5; font-size: 28px; font-weight: bold; margin-bottom: 15px; }
-    .info-box { background-color: #eef9fb; border-left: 5px solid #28aec5; padding: 10px; margin-bottom: 10px; }
+    .giant-title { color: #28aec5; text-align: center; font-size: 72px; margin: 30px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; text-shadow: 2px 2px 4px rgba(0,0,0,0.1); }
+    .sub-header { color: #c0d711; font-size: 24px; margin-bottom: 15px; font-weight: bold; }
+    .stButton>button { background-color: #28aec5; color: white; border: none; border-radius: 4px; padding: 8px 16px; }
+    .stButton>button:hover { background-color: #1c94aa; }
 </style>
 """, unsafe_allow_html=True)
 
-# Título principal
-st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
+st.sidebar.markdown('<p class="sub-header">Visualizador de imágenes DICOM</p>', unsafe_allow_html=True)
 
-# --- Sidebar ---
-st.sidebar.markdown('<p class="sidebar-title">Configuración</p>', unsafe_allow_html=True)
-uploaded_file = st.sidebar.file_uploader("Sube un archivo ZIP con tus imágenes DICOM", type="zip")
-
-# --- Funciones auxiliares para cargar archivos DICOM y estructuras ---
-
-def extract_zip(uploaded_zip):
-    """Extrae archivos de un ZIP subido"""
-    temp_dir = tempfile.mkdtemp()
-    with zipfile.ZipFile(io.BytesIO(uploaded_zip.read()), 'r') as zip_ref:
-        zip_ref.extractall(temp_dir)
-    return temp_dir
+uploaded_file = st.sidebar.file_uploader("Sube un archivo ZIP con tus archivos DICOM", type="zip")
 
 def find_dicom_series(directory):
-    """Busca archivos DICOM y los agrupa por SeriesInstanceUID"""
-    series = {}
-    structures = []
-
-    for root, _, files in os.walk(directory):
-        for file in files:
-            path = os.path.join(root, file)
-            try:
-                dcm = pydicom.dcmread(path, force=True, stop_before_pixels=True)
-                modality = getattr(dcm, 'Modality', '')
-
-                if modality == 'RTSTRUCT' or file.startswith('RS'):
-                    structures.append(path)
-                elif modality in ['CT', 'MR', 'PT', 'US']:
-                    uid = getattr(dcm, 'SeriesInstanceUID', 'unknown')
-                    if uid not in series:
-                        series[uid] = []
-                    series[uid].append(path)
-            except Exception:
-                pass  # Ignorar archivos no DICOM
-
-    return series, structures
-
-# --- Parte 2: Carga de imágenes y estructuras ---
-
-def load_dicom_series(file_list):
-    """Carga imágenes DICOM como volumen 3D con manejo mejorado de errores"""
-    dicom_files = []
-    for file_path in file_list:
+    series_found = []
+    for root, dirs, files in os.walk(directory):
         try:
-            dcm = pydicom.dcmread(file_path, force=True)
-            if hasattr(dcm, 'pixel_array'):
-                dicom_files.append((file_path, dcm))
+            series_ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
+            for sid in series_ids:
+                file_list = sitk.ImageSeriesReader.GetGDCMSeriesFileNames(root, sid)
+                if file_list:
+                    series_found.append((sid, root, file_list))
         except Exception:
             continue
-
-    if not dicom_files:
-        return None, None
-
-    # Ordenar por InstanceNumber
-    dicom_files.sort(key=lambda x: getattr(x[1], 'InstanceNumber', 0))
-    
-    # Encontrar la forma más común
-    shape_counts = {}
-    for _, dcm in dicom_files:
-        shape = dcm.pixel_array.shape
-        shape_counts[shape] = shape_counts.get(shape, 0) + 1
-    
-    best_shape = max(shape_counts, key=shape_counts.get)
-    slices = [d[1].pixel_array for d in dicom_files if d[1].pixel_array.shape == best_shape]
-
-    # Crear volumen 3D
-    volume = np.stack(slices)
-
-    # Extraer información de spacings
-    sample = dicom_files[0][1]
-    pixel_spacing = getattr(sample, 'PixelSpacing', [1,1])
-    pixel_spacing = list(map(float, pixel_spacing))
-    slice_thickness = float(getattr(sample, 'SliceThickness', 1))
-    
-    spacing = pixel_spacing + [slice_thickness]
-    
-    origin = getattr(sample, 'ImagePositionPatient', [0,0,0])
-    direction = getattr(sample, 'ImageOrientationPatient', [1,0,0,0,1,0])
-
-    direction_matrix = np.array([
-        [direction[0], direction[3], 0],
-        [direction[1], direction[4], 0],
-        [direction[2], direction[5], 1]
-    ])
-
-    # Añadir posiciones Z de cada corte
-    slice_positions = []
-    for _, dcm in dicom_files:
-        if hasattr(dcm, 'ImagePositionPatient'):
-            slice_positions.append(float(dcm.ImagePositionPatient[2]))
-        else:
-            slice_positions.append(0.0)
-
-    volume_info = {
-        'spacing': spacing,
-        'origin': origin,
-        'direction': direction_matrix,
-        'size': volume.shape,
-        'slice_positions': slice_positions
-    }
-        
-    return volume, volume_info
-
-def load_rtstruct(file_path):
-    """Carga contornos RTSTRUCT con mejor manejo de errores y debug"""
-    try:
-        struct = pydicom.dcmread(file_path)
-        structures = {}
-        
-        if not hasattr(struct, 'ROIContourSequence'):
-            st.warning("El archivo RTSTRUCT no contiene secuencia ROIContour")
-            return structures
-        
-        roi_names = {roi.ROINumber: roi.ROIName for roi in struct.StructureSetROISequence}
-        
-        for roi in struct.ROIContourSequence:
-            color = np.array(roi.ROIDisplayColor) / 255.0 if hasattr(roi, 'ROIDisplayColor') else np.random.rand(3)
-            contours = []
-            
-            if hasattr(roi, 'ContourSequence'):
-                for contour in roi.ContourSequence:
-                    pts = np.array(contour.ContourData).reshape(-1, 3)
-                    contours.append({'points': pts, 'z': np.mean(pts[:,2])})
-                
-                roi_name = roi_names.get(roi.ReferencedROINumber, f"ROI-{roi.ReferencedROINumber}")
-                structures[roi_name] = {'color': color, 'contours': contours}
-            
-        return structures
-    except Exception as e:
-        st.error(f"Error leyendo estructura: {e}")
-        st.code(traceback.format_exc())
-        return None
-
-# --- Parte 3: Funciones de visualización y análisis ---
-
-def patient_to_voxel(points, volume_info):
-    """Convierte puntos del espacio del paciente al espacio de vóxeles"""
-    if points.ndim != 2 or points.shape[1] != 3:
-        raise ValueError(f"Se esperaba (N, 3) puntos, recibido {points.shape}")
-
-    origin = np.asarray(volume_info['origin'], dtype=np.float32)
-    spacing = np.asarray(volume_info['spacing'], dtype=np.float32)
-    direction = volume_info['direction']
-    
-    inv_direction = np.linalg.inv(direction)
-    
-    adjusted_points = np.zeros_like(points)
-    
-    for i in range(len(points)):
-        vec = np.dot(inv_direction, points[i] - origin)
-        adjusted_points[i] = vec / spacing
-        
-    return adjusted_points
-
-def apply_window(img, window_center, window_width):
-    """Aplica ventana de visualización a la imagen"""
-    img = img.astype(np.float32)
-    min_value = window_center - window_width / 2
-    max_value = window_center + window_width / 2
-    img = np.clip(img, min_value, max_value)
-    img = (img - min_value) / (max_value - min_value)
-    img = np.clip(img, 0, 1)
-    return img
-
-def point_in_polygon(point, polygon):
-    """Determina si un punto 2D está dentro de un polígono 2D"""
-    x, y = point
-    n = len(polygon)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        if ((polygon[i][1] > y) != (polygon[j][1] > y)) and \
-           (x < (polygon[j][0] - polygon[i][0]) * (y - polygon[i][1]) / 
-           (polygon[j][1] - polygon[i][1] + 1e-10) + polygon[i][0]):
-            inside = not inside
-        j = i
-    return inside
-
-def line_intersects_contour(line_start, line_end, contour_points, margin=2.0):
-    """Verifica si una línea 3D intersecta un contorno con margen"""
-    from scipy.spatial import distance
-    line_vec = line_end - line_start
-    line_len = np.linalg.norm(line_vec)
-    if line_len == 0:
-        return False
-    line_dir = line_vec / line_len
-    for point in contour_points:
-        t = np.dot(point - line_start, line_dir)
-        if 0 <= t <= line_len:
-            proj_point = line_start + t * line_dir
-            dist = distance.euclidean(point, proj_point)
-            if dist < margin:
-                return True
-    return False
-
-# MODIFIED: Added error handling and robust needle separation
-def compute_needle_trajectories(num_needles, cylinder_diameter, cylinder_length, structures, volume_info, ctv_centroid_offset=[0,0,0]):
-    """Calcula trayectorias de agujas para alcanzar CTV evitando órganos sanos"""
-    try:
-        needle_diameter = 3.0  # mm
-        cylinder_radius = cylinder_diameter / 2
-        needle_ring_radius = cylinder_radius * 0.85  # 85% for separation
-
-        # Encontrar CTV y calcular su centroide
-        ctv_structure = None
-        for name, struct in structures.items():
-            if name.startswith("CTV_"):
-                ctv_structure = struct
-                break
-        
-        if not ctv_structure:
-            st.error("No se encontró estructura CTV")
-            return [], [], None
-
-        # Calcular centroide de CTV
-        all_points = np.concatenate([c['points'] for c in ctv_structure['contours']])
-        ctv_centroid = np.mean(all_points, axis=0) + np.array(ctv_centroid_offset)
-
-        # Generar posiciones de entrada de agujas con separación angular mínima
-        needle_entries = []
-        needle_trajectories = []
-        min_angle_deg = 30  # Minimum angular separation of 30 degrees
-        max_possible_angles = int(360 // min_angle_deg)
-        num_angles = min(max(1, num_needles), max_possible_angles)  # Ensure at least 1 needle
-        if num_angles < num_needles:
-            st.warning(f"Reduciendo número de agujas a {num_angles} para mantener separación angular mínima de {min_angle_deg}°")
-        
-        angles = np.linspace(0, 2 * np.pi, num_angles, endpoint=False)
-        
-        for angle in angles:
-            x = needle_ring_radius * np.cos(angle) + ctv_centroid[0]
-            y = needle_ring_radius * np.sin(angle) + ctv_centroid[1]
-            z = ctv_centroid[2] - cylinder_length * 1.2  # Start below cylinder base
-            needle_entries.append([x, y, z])
-
-        # Calcular trayectorias
-        healthy_structures = {name: s for name, s in structures.items() if not name.startswith("CTV_")}
-        margin = 2.0  # Margen de 2 mm
-
-        for entry in needle_entries:
-            entry = np.array(entry)
-            target = ctv_centroid
-            dir_vec = np.array([0, 0, 1])  # Straight along z-axis
-            end_point = entry + dir_vec * cylinder_length * 2.4  # Extend beyond cylinder top
-
-            # Verificar colisiones con órganos sanos
-            intersects = False
-            for name, struct in healthy_structures.items():
-                for contour in struct['contours']:
-                    if line_intersects_contour(entry, end_point, contour['points'], margin):
-                        intersects = True
-                        break
-                if intersects:
-                    break
-            
-            needle_trajectories.append({
-                'entry': entry,
-                'end': end_point,
-                'feasible': not intersects,
-                'angle_adjustment': 0
-            })
-
-        return needle_entries, needle_trajectories, ctv_centroid
-    except Exception as e:
-        st.error(f"Error en compute_needle_trajectories: {e}")
-        st.code(traceback.format_exc())
-        return [], [], None
-
-def update_needle_position(needle_index, new_x, new_y, new_z, angle_adj, num_needles, cylinder_diameter, cylinder_length, structures, volume_info, ctv_centroid):
-    """Updates a needle's position and recalculates its trajectory."""
-    try:
-        needle_entries = st.session_state.needle_entries.copy()
-        needle_trajectories = st.session_state.needle_trajectories.copy()
-        
-        if needle_index >= len(needle_entries):
-            return needle_entries, needle_trajectories
-        
-        # Update needle entry position
-        needle_entries[needle_index] = [new_x, new_y, new_z]
-        
-        # Recalculate trajectory
-        entry = np.array([new_x, new_y, new_z])
-        target = ctv_centroid
-        dir_vec = np.array([0, 0, 1])  # Straight along z-axis
-        
-        if angle_adj != 0:
-            theta = np.deg2rad(angle_adj)
-            rot_matrix = np.array([
-                [np.cos(theta), -np.sin(theta), 0],
-                [np.sin(theta), np.cos(theta), 0],
-                [0, 0, 1]
-            ])
-            dir_vec = rot_matrix @ dir_vec
-        
-        dir_vec = dir_vec / np.linalg.norm(dir_vec)
-        end_point = entry + dir_vec * cylinder_length * 2.4  # Extend beyond cylinder top
-        
-        # Check for collisions with healthy structures
-        healthy_structures = {name: s for name, s in structures.items() if not name.startswith("CTV_")}
-        margin = 2.0
-        intersects = False
-        for name, struct in healthy_structures.items():
-            for contour in struct['contours']:
-                if line_intersects_contour(entry, end_point, contour['points'], margin):
-                    intersects = True
-                    break
-            if intersects:
-                break
-        
-        # Update trajectory
-        needle_trajectories[needle_index] = {
-            'entry': entry,
-            'end': end_point,
-            'feasible': not intersects,
-            'angle_adjustment': angle_adj
-        }
-        
-        return needle_entries, needle_trajectories
-    except Exception as e:
-        st.error(f"Error en update_needle_position: {e}")
-        st.code(traceback.format_exc())
-        return needle_entries, needle_trajectories
-
-def draw_slice(volume, slice_idx, plane, structures, volume_info, window, needle_trajectories=None, ctv_centroid=None, cylinder_diameter=None, cylinder_length=None, show_cylinder_2d=False, linewidth=2, show_names=True, invert_colors=False):
-    """Dibuja un corte con contornos, trayectorias de agujas y cilindro"""
-    try:
-        fig, ax = plt.subplots(figsize=(8, 8))
-        plt.axis('off')
-
-        if plane == 'axial':
-            img = volume[slice_idx, :, :]
-        elif plane == 'coronal':
-            img = volume[:, slice_idx, :]
-        elif plane == 'sagittal':
-            img = volume[:, :, slice_idx]
-        else:
-            raise ValueError("Plano inválido")
-
-        img = apply_window(img, window[1], window[0])
-        if invert_colors:
-            img = 1.0 - img
-
-        ax.imshow(img, cmap='gray')
-
-        origin = np.array(volume_info['origin'])
-        spacing = np.array(volume_info['spacing'])
-        
-        if plane == 'axial':
-            if 'slice_positions' in volume_info and len(volume_info['slice_positions']) > slice_idx:
-                current_slice_pos = volume_info['slice_positions'][slice_idx]
-            else:
-                current_slice_pos = origin[2] + slice_idx * spacing[2]
-            coord_label = f"Z: {current_slice_pos:.2f} mm"
-        elif plane == 'coronal':
-            current_slice_pos = origin[1] + slice_idx * spacing[1]
-            coord_label = f"Y: {current_slice_pos:.2f} mm"
-        elif plane == 'sagittal':
-            current_slice_pos = origin[0] + slice_idx * spacing[0]
-            coord_label = f"X: {current_slice_pos:.2f} mm"
-
-        ax.text(5, 15, f"{plane} - slice {slice_idx}", color='white', bbox=dict(facecolor='black', alpha=0.5))
-        ax.text(5, 30, coord_label, color='yellow', bbox=dict(facecolor='black', alpha=0.5))
-
-        if structures:
-            for name, struct in structures.items():
-                contour_drawn = 0
-                color = struct['color']
-
-                for contour in struct['contours']:
-                    raw_points = contour['points']
-
-                    if plane == 'axial':
-                        contour_z_values = raw_points[:, 2]
-                        min_z = np.min(contour_z_values)
-                        max_z = np.max(contour_z_values)
-                        tolerance = spacing[2] * 2.0
-
-                        if (min_z - tolerance <= current_slice_pos <= max_z + tolerance or
-                            abs(contour['z'] - current_slice_pos) <= tolerance):
-                            pixel_points = np.zeros((raw_points.shape[0], 2))
-                            pixel_points[:, 0] = (raw_points[:, 0] - origin[0]) / spacing[0]
-                            pixel_points[:, 1] = (raw_points[:, 1] - origin[1]) / spacing[1]
-
-                            if len(pixel_points) >= 3:
-                                polygon = patches.Polygon(pixel_points, closed=True, fill=False, edgecolor=color, linewidth=linewidth)
-                                ax.add_patch(polygon)
-                                contour_drawn += 1
-
-                    elif plane == 'coronal':
-                        mask = np.abs(raw_points[:, 1] - current_slice_pos) < spacing[1]
-                        if np.sum(mask) >= 3:
-                            selected_points = raw_points[mask]
-                            pixel_points = np.zeros((selected_points.shape[0], 2))
-                            pixel_points[:, 0] = (selected_points[:, 0] - origin[0]) / spacing[0]
-                            pixel_points[:, 1] = (selected_points[:, 2] - origin[2]) / spacing[2]
-                            polygon = patches.Polygon(pixel_points, closed=True, fill=False, edgecolor=color, linewidth=linewidth)
-                            ax.add_patch(polygon)
-                            contour_drawn += 1
-
-                    elif plane == 'sagittal':
-                        mask = np.abs(raw_points[:, 0] - current_slice_pos) < spacing[0]
-                        if np.sum(mask) >= 3:
-                            selected_points = raw_points[mask]
-                            pixel_points = np.zeros((selected_points.shape[0], 2))
-                            pixel_points[:, 0] = (selected_points[:, 1] - origin[1]) / spacing[1]
-                            pixel_points[:, 1] = (selected_points[:, 2] - origin[2]) / spacing[2]
-                            polygon = patches.Polygon(pixel_points, closed=True, fill=False, edgecolor=color, linewidth=linewidth)
-                            ax.add_patch(polygon)
-                            contour_drawn += 1
-
-                if contour_drawn > 0 and show_names:
-                    ax.text(img.shape[1]/2, img.shape[0]/2, f"{name} ({contour_drawn})", color=color, fontsize=8, ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7))
-
-        if needle_trajectories:
-            for traj in needle_trajectories:
-                start = traj['entry']
-                end = traj['end']
-                color = 'green' if traj['feasible'] else 'red'
-
-                # Convertir a coordenadas de píxeles
-                start_voxel = patient_to_voxel(np.array([start]), volume_info)[0]
-                end_voxel = patient_to_voxel(np.array([end]), volume_info)[0]
-
-                if plane == 'axial':
-                    z_voxel = slice_idx
-                    if (start_voxel[2] <= z_voxel <= end_voxel[2] or end_voxel[2] <= z_voxel <= start_voxel[2]):
-                        t = (z_voxel - start_voxel[2]) / (end_voxel[2] - start_voxel[2] + 1e-10)
-                        x = start_voxel[0] + t * (end_voxel[0] - start_voxel[0])
-                        y = start_voxel[1] + t * (end_voxel[1] - start_voxel[1])
-                        ax.plot([x], [y], marker='o', color=color, markersize=4)
-                elif plane == 'coronal':
-                    y_voxel = slice_idx
-                    if (start_voxel[1] <= y_voxel <= end_voxel[1] or end_voxel[1] <= y_voxel <= start_voxel[1]):
-                        t = (y_voxel - start_voxel[1]) / (end_voxel[1] - start_voxel[1] + 1e-10)
-                        x = start_voxel[0] + t * (end_voxel[0] - start_voxel[0])
-                        z = start_voxel[2] + t * (end_voxel[2] - start_voxel[2])
-                        ax.plot([x], [z], marker='o', color=color, markersize=4)
-                elif plane == 'sagittal':
-                    x_voxel = slice_idx
-                    if (start_voxel[0] <= x_voxel <= end_voxel[0] or end_voxel[0] <= x_voxel <= start_voxel[0]):
-                        t = (x_voxel - start_voxel[0]) / (end_voxel[0] - start_voxel[0] + 1e-10)
-                        y = start_voxel[1] + t * (end_voxel[1] - start_voxel[1])
-                        z = start_voxel[2] + t * (end_voxel[2] - start_voxel[2])
-                        ax.plot([y], [z], marker='o', color=color, markersize=4)
-
-        if show_cylinder_2d and ctv_centroid is not None and cylinder_diameter is not None and cylinder_length is not None:
-            cylinder_radius = cylinder_diameter / 2
-            z_base = ctv_centroid[2] - cylinder_length
-            z_top = ctv_centroid[2]
-
-            if plane == 'axial':
-                if z_base <= current_slice_pos <= z_top:
-                    center_x = (ctv_centroid[0] - origin[0]) / spacing[0]
-                    center_y = (ctv_centroid[1] - origin[1]) / spacing[1]
-                    radius_pixel = cylinder_radius / spacing[0]  # Asumiendo spacing[0] == spacing[1]
-                    circle = patches.Circle((center_x, center_y), radius_pixel, fill=False, edgecolor='blue', linewidth=linewidth, linestyle='--')
-                    ax.add_patch(circle)
-            elif plane == 'coronal':
-                if abs(ctv_centroid[1] - current_slice_pos) <= cylinder_radius:
-                    x_min = (ctv_centroid[0] - cylinder_radius - origin[0]) / spacing[0]
-                    x_max = (ctv_centroid[0] + cylinder_radius - origin[0]) / spacing[0]
-                    z_min = (z_base - origin[2]) / spacing[2]
-                    z_max = (z_top - origin[2]) / spacing[2]
-                    width = x_max - x_min
-                    height = z_max - z_min
-                    rect = patches.Rectangle((x_min, z_min), width, height, fill=False, edgecolor='blue', linewidth=linewidth, linestyle='--')
-                    ax.add_patch(rect)
-            elif plane == 'sagittal':
-                if abs(ctv_centroid[0] - current_slice_pos) <= cylinder_radius:
-                    y_min = (ctv_centroid[1] - cylinder_radius - origin[1]) / spacing[1]
-                    y_max = (ctv_centroid[1] + cylinder_radius - origin[1]) / spacing[1]
-                    z_min = (z_base - origin[2]) / spacing[2]
-                    z_max = (z_top - origin[2]) / spacing[2]
-                    width = y_max - y_min
-                    height = z_max - z_min
-                    rect = patches.Rectangle((y_min, z_min), width, height, fill=False, edgecolor='blue', linewidth=linewidth, linestyle='--')
-                    ax.add_patch(rect)
-
-        plt.tight_layout()
-        return fig
-    except Exception as e:
-        st.error(f"Error en draw_slice: {e}")
-        st.code(traceback.format_exc())
-        return None
-
-# MODIFIED: Simplified cylinder mesh, added error handling
-def draw_3d_visualization(structures, needle_trajectories, volume_info, cylinder_diameter, cylinder_length, ctv_centroid):
-    """Crea una visualización 3D de estructuras, trayectorias de agujas y cilindro usando Plotly"""
-    try:
-        fig = go.Figure()
-
-        # Visualizar estructuras (contornos)
-        if structures:
-            for name, struct in structures.items():
-                color = struct['color']
-                rgb_color = f"rgb({int(color[0]*255)}, {int(color[1]*255)}, {int(color[2]*255)})"
-                opacity = 0.3 if name == "BODY" else 0.6
-                for contour in struct['contours']:
-                    pts = contour['points']
-                    # Submuestrear para rendimiento
-                    if len(pts) > 1000:
-                        indices = np.random.choice(len(pts), 1000, replace=False)
-                        pts = pts[indices]
-                    fig.add_trace(go.Scatter3d(
-                        x=pts[:, 0],
-                        y=pts[:, 1],
-                        z=pts[:, 2],
-                        mode='lines',
-                        line=dict(color=rgb_color, width=2),
-                        name=name,
-                        opacity=opacity
-                    ))
-
-        # Visualizar trayectorias de agujas
-        if needle_trajectories:
-            for i, traj in enumerate(needle_trajectories):
-                start = traj['entry']
-                end = traj['end']
-                color = 'green' if traj['feasible'] else 'red'
-                fig.add_trace(go.Scatter3d(
-                    x=[start[0], end[0]],
-                    y=[start[1], end[1]],
-                    z=[start[2], end[2]],
-                    mode='lines+markers',
-                    line=dict(color=color, width=10),
-                    marker=dict(size=6, color=color),
-                    name=f"Needle {i+1} ({'Feasible' if traj['feasible'] else 'Infeasible'})",
-                    customdata=[i],
-                    hovertemplate=f"Needle {i+1}<br>X: %{{x:.2f}} mm<br>Y: %{{y:.2f}} mm<br>Z: %{{z:.2f}} mm<br>Feasible: {'Yes' if traj['feasible'] else 'No'}"
-                ))
-
-        # Visualizar el cilindro como una malla semi-transparente, hueco
-        cylinder_radius = cylinder_diameter / 2
-        z_base = ctv_centroid[2] - cylinder_length * 0.9  # Slightly above needle entry
-        z_top = ctv_centroid[2] + cylinder_length * 0.9   # Slightly below needle exit
-
-        # Crear puntos para el cilindro con resolución moderada
-        theta = np.linspace(0, 2*np.pi, 30)  # Reduced for performance
-        z = np.linspace(z_base, z_top, 20)   # Reduced for performance
-        theta, z = np.meshgrid(theta, z)
-        x = cylinder_radius * np.cos(theta) + ctv_centroid[0]
-        y = cylinder_radius * np.sin(theta) + ctv_centroid[1]
-
-        fig.add_trace(go.Mesh3d(
-            x=x.flatten(),
-            y=y.flatten(),
-            z=z.flatten(),
-            opacity=0.4,
-            color='#4682B4',
-            lighting=dict(
-                ambient=0.8,
-                diffuse=0.8,
-                specular=0.5,
-                roughness=0.5,
-                fresnel=0.1
-            ),
-            lightposition=dict(x=100, y=100, z=1000),
-            name='Cylinder',
-            showlegend=True
-        ))
-
-        # Configurar el diseño
-        fig.update_layout(
-            scene=dict(
-                xaxis_title='X (mm)',
-                yaxis_title='Y (mm)',
-                zaxis_title='Z (mm)',
-                aspectmode='data',
-                dragmode='orbit'
-            ),
-            showlegend=True,
-            height=800,
-            margin=dict(l=0, r=0, t=0, b=0),
-            clickmode='event+select'
-        )
-
-        return fig
-    except Exception as e:
-        st.error(f"Error en draw_3d_visualization: {e}")
-        st.code(traceback.format_exc())
-        return None
-
-# --- Parte 4: Interfaz principal ---
-
-try:
-    # Initialize session state with defaults
-    if 'needle_entries' not in st.session_state:
-        st.session_state.needle_entries = []
-    if 'needle_trajectories' not in st.session_state:
-        st.session_state.needle_trajectories = []
-    if 'ctv_centroid' not in st.session_state:
-        st.session_state.ctv_centroid = None
-
-    if uploaded_file:
-        temp_dir = extract_zip(uploaded_file)
-        series_dict, structure_files = find_dicom_series(temp_dir)
-
-        if series_dict:
-            series_options = list(series_dict.keys())
-            selected_series = st.sidebar.selectbox("Selecciona la serie", series_options)
-            dicom_files = series_dict[selected_series]
-
-            # Cargar el volumen e información
-            volume, volume_info = load_dicom_series(dicom_files)
-
-            # Cargar estructuras si están disponibles
-            structures = None
-            if structure_files:
-                structures = load_rtstruct(structure_files[0])
-                if structures:
-                    st.success(f"✅ Se cargaron {len(structures)} estructuras.")
-                else:
-                    st.warning("⚠️ No se encontraron estructuras RTSTRUCT.")
-
-            if volume is not None:
-                # Cylinder parameters
-                st.title("Generador de cilindro con punta tipo tampón (FreeCAD)")
-                st.write("Esta aplicación genera código para crear un cilindro con una punta redondeada y orificios para agujas y tándem en FreeCAD.")
-
-                # Parámetros en centímetros
-                col1, col2 = st.columns(2)
-                with col1:
-                    diametro_cm = st.slider("Diámetro (cm)", min_value=1.0, max_value=12.0, value=3.0, step=0.1)
-                    st.write(f"Diámetro seleccionado: {diametro_cm} cm ({diametro_cm*10} mm)")
-                
-                with col2:
-                    longitud_cm = st.slider("Longitud total (cm)", min_value=2.0, max_value=20.0, value=5.0, step=0.1)
-                    st.write(f"Longitud seleccionada: {longitud_cm} cm ({longitud_cm*10} mm)")
-                
-                with st.expander("Opciones avanzadas"):
-                    prop_punta = st.slider("Proporción de la punta (%)", min_value=10, max_value=50, value=20, step=5)
-                    st.write(f"La punta ocupará el {prop_punta}% de la longitud total")
-
-                # Convertir a milímetros
-                diametro_mm = round(diametro_cm * 10, 2)
-                longitud_mm = round(longitud_cm * 10, 2)
-                altura_punta = round(longitud_mm * prop_punta/100, 2)
-                altura_cuerpo = round(longitud_mm - altura_punta, 2)
-                needle_diameter = 3.0
-
-                st.sidebar.markdown('<p class="sidebar-title">Visualización</p>', unsafe_allow_html=True)
-
-                # Definir límites de los sliders
-                max_axial = volume.shape[0] - 1
-                max_coronal = volume.shape[1] - 1
-                max_sagittal = volume.shape[2] - 1
-
-                st.sidebar.markdown("#### Selección de cortes")
-                st.sidebar.markdown("#### Opciones avanzadas")
-                st.sidebar.markdown("*Visualización 3D (cilindro y trayectorias)*")
-                show_3d_visualization = st.sidebar.checkbox("Mostrar visualización 3D", value=False)
-                sync_slices = st.sidebar.checkbox("Sincronizar cortes", value=True)
-                invert_colors = st.sidebar.checkbox("Invertir colores (Negativo)", value=False)
-                show_structures = st.sidebar.checkbox("Mostrar estructuras", value=True)
-                show_needle_trajectories = st.sidebar.checkbox("Mostrar trayectorias de agujas", value=True)
-                show_cylinder_2d = st.sidebar.checkbox("Mostrar cilindro en 2D", value=True)
-
-                if sync_slices:
-                    unified_idx = st.sidebar.slider(
-                        "Corte (sincronizado)",
-                        min_value=0,
-                        max_value=max(max_axial, max_coronal, max_sagittal),
-                        value=max_axial // 2,
-                        step=1
-                    )
-                    unified_idx = st.sidebar.number_input(
-                        "Corte (sincronizado)",
-                        min_value=0,
-                        max_value=max(max_axial, max_coronal, max_sagittal),
-                        value=unified_idx,
-                        step=1
-                    )
-                    axial_idx = min(unified_idx, max_axial)
-                    coronal_idx = min(unified_idx, max_coronal)
-                    sagittal_idx = min(unified_idx, max_sagittal)
-                else:
-                    axial_idx = st.sidebar.slider(
-                        "Corte axial (Z)",
-                        min_value=0,
-                        max_value=max_axial,
-                        value=max_axial // 2,
-                        step=1
-                    )
-                    axial_idx = st.sidebar.number_input(
-                        "Corte axial (Z)",
-                        min_value=0,
-                        max_value=max_axial,
-                        value=axial_idx,
-                        step=1
-                    )
-                    coronal_idx = st.sidebar.slider(
-                        "Corte coronal (Y)",
-                        min_value=0,
-                        max_value=max_coronal,
-                        value=max_coronal // 2,
-                        step=1
-                    )
-                    coronal_idx = st.sidebar.number_input(
-                        "Corte coronal (Y)",
-                        min_value=0,
-                        max_value=max_coronal,
-                        value=coronal_idx,
-                        step=1
-                    )
-                    sagittal_idx = st.sidebar.slider(
-                        "Corte sagital (X)",
-                        min_value=0,
-                        max_value=max_sagittal,
-                        value=max_sagittal // 2,
-                        step=1
-                    )
-                    sagittal_idx = st.sidebar.number_input(
-                        "Corte sagital (X)",
-                        min_value=0,
-                        max_value=max_sagittal,
-                        value=sagittal_idx,
-                        step=1
-                    )
-
-                window_option = st.sidebar.selectbox(
-                    "Tipo de ventana",
-                    ["Default", "Cerebro (Brain)", "Pulmón (Lung)", "Hueso (Bone)", "Abdomen", "Mediastino (Mediastinum)",
-                     "Hígado (Liver)", "Tejido blando (Soft Tissue)", "Columna blanda (Spine Soft)",
-                     "Columna ósea (Spine Bone)", "Aire (Air)", "Grasa (Fat)", "Metal", "Personalizado"]
-                )
-
-                if window_option == "Default":
-                    sample = dicom_files[0]
-                    try:
-                        dcm = pydicom.dcmread(sample, force=True)
-                        window_width = getattr(dcm, 'WindowWidth', [400])[0] if hasattr(dcm, 'WindowWidth') else 400
-                        window_center = getattr(dcm, 'WindowCenter', [40])[0] if hasattr(dcm, 'WindowCenter') else 40
-                        if isinstance(window_width, (list, tuple)):
-                            window_width = window_width[0]
-                        if isinstance(window_center, (list, tuple)):
-                            window_center = window_center[0]
-                    except Exception:
-                        window_width, window_center = 400, 40
-                elif window_option == "Cerebro (Brain)":
-                    window_width, window_center = 80, 40
-                elif window_option == "Pulmón (Lung)":
-                    window_width, window_center = 1500, -600
-                elif window_option == "Hueso (Bone)":
-                    window_width, window_center = 1500, 300
-                elif window_option == "Abdomen":
-                    window_width, window_center = 400, 60
-                elif window_option == "Mediastino (Mediastinum)":
-                    window_width, window_center = 400, 40
-                elif window_option == "Hígado (Liver)":
-                    window_width, window_center = 150, 70
-                elif window_option == "Tejido blando (Soft Tissue)":
-                    window_width, window_center = 350, 50
-                elif window_option == "Columna blanda (Spine Soft)":
-                    window_width, window_center = 350, 50
-                elif window_option == "Columna ósea (Spine Bone)":
-                    window_width, window_center = 1500, 300
-                elif window_option == "Aire (Air)":
-                    window_width, window_center = 2000, -1000
-                elif window_option == "Grasa (Fat)":
-                    window_width, window_center = 200, -100
-                elif window_option == "Metal":
-                    window_width, window_center = 4000, 1000
-                elif window_option == "Personalizado":
-                    window_center = st.sidebar.number_input("Window Center (WL)", value=40)
-                    window_width = st.sidebar.number_input("Window Width (WW)", value=400)
-
-                linewidth = st.sidebar.slider("Grosor líneas", 1, 8, 2)
-
-                # Parámetros de agujas y tándem
-                st.sidebar.markdown('<p class="sidebar-title">Configuración de Agujas</p>', unsafe_allow_html=True)
-                num_needles = st.sidebar.slider("Número de agujas", min_value=1, max_value=12, value=6, step=1)
-                tandem_diameter = st.sidebar.number_input("Diámetro del tándem (mm)", min_value=1.0, max_value=10.0, value=5.0, step=0.1)
-                ctv_offset_x = st.sidebar.number_input("Offset CTV X (mm)", min_value=-50.0, max_value=50.0, value=0.0, step=0.1)
-                ctv_offset_y = st.sidebar.number_input("Offset CTV Y (mm)", min_value=-50.0, max_value=50.0, value=0.0, step=0.1)
-                ctv_offset_z = st.sidebar.number_input("Offset CTV Z (mm)", min_value=-50.0, max_value=50.0, value=0.0, step=0.1)
-
-                # Interactive needle adjustment
-                st.sidebar.markdown('<p class="sidebar-title">Ajuste Manual de Agujas</p>', unsafe_allow_html=True)
-                if st.session_state.needle_trajectories:
-                    needle_options = [f"Needle {i+1}" for i in range(len(st.session_state.needle_trajectories))]
-                    selected_needle = st.sidebar.selectbox("Selecciona una aguja para ajustar", needle_options)
-                    needle_index = int(selected_needle.split()[1]) - 1
-                    
-                    # Get current needle position
-                    current_entry = st.session_state.needle_entries[needle_index]
-                    current_traj = st.session_state.needle_trajectories[needle_index]
-                    
-                    st.sidebar.markdown("### Coordenadas de Entrada (mm)")
-                    new_x = st.sidebar.number_input("X", value=float(current_entry[0]), step=0.1, key=f"x_{needle_index}")
-                    new_y = st.sidebar.number_input("Y", value=float(current_entry[1]), step=0.1, key=f"y_{needle_index}")
-                    new_z = st.sidebar.number_input("Z", value=float(current_entry[2]), step=0.1, key=f"z_{needle_index}")
-                    new_angle = st.sidebar.number_input("Ajuste de ángulo (°)", value=float(current_traj['angle_adjustment']), min_value=-30.0, max_value=30.0, step=1.0, key=f"angle_{needle_index}")
-                    
-                    if st.sidebar.button("Actualizar posición de aguja", key=f"update_{needle_index}"):
-                        # Update needle position and trajectory
-                        new_entries, new_trajectories = update_needle_position(
-                            needle_index, new_x, new_y, new_z, new_angle, num_needles, diametro_mm, longitud_mm, 
-                            structures, volume_info, st.session_state.ctv_centroid
-                        )
-                        st.session_state.needle_entries = new_entries
-                        st.session_state.needle_trajectories = new_trajectories
-                        st.success(f"Agujas {needle_index+1} actualizada.")
-
-                # Calcular trayectorias de agujas using session state
-                if structures and not st.session_state.needle_trajectories:
-                    st.session_state.needle_entries, st.session_state.needle_trajectories, st.session_state.ctv_centroid = compute_needle_trajectories(
-                        num_needles, diametro_mm, longitud_mm, structures, volume_info,
-                        ctv_centroid_offset=[ctv_offset_x, ctv_offset_y, ctv_offset_z]
-                    )
-                    if st.session_state.needle_trajectories:
-                        infeasible = [t for t in st.session_state.needle_trajectories if not t['feasible']]
-                        if infeasible:
-                            st.warning(f"⚠️ {len(infeasible)} trayectorias de agujas intersectan órganos sanos.")
-
-                # Mostrar las imágenes en tres columnas
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.markdown("### Axial")
-                    fig_axial = draw_slice(
-                        volume, axial_idx, 'axial',
-                        structures if show_structures else None,
-                        volume_info,
-                        (window_width, window_center),
-                        st.session_state.needle_trajectories if show_needle_trajectories else None,
-                        st.session_state.ctv_centroid,
-                        diametro_mm,
-                        longitud_mm,
-                        show_cylinder_2d,
-                        linewidth=linewidth,
-                        invert_colors=invert_colors
-                    )
-                    if fig_axial:
-                        st.pyplot(fig_axial)
-
-                with col2:
-                    st.markdown("### Coronal")
-                    fig_coronal = draw_slice(
-                        volume, coronal_idx, 'coronal',
-                        structures if show_structures else None,
-                        volume_info,
-                        (window_width, window_center),
-                        st.session_state.needle_trajectories if show_needle_trajectories else None,
-                        st.session_state.ctv_centroid,
-                        diametro_mm,
-                        longitud_mm,
-                        show_cylinder_2d,
-                        linewidth=linewidth,
-                        invert_colors=invert_colors
-                    )
-                    if fig_coronal:
-                        st.pyplot(fig_coronal)
-
-                with col3:
-                    st.markdown("### Sagital")
-                    fig_sagittal = draw_slice(
-                        volume, sagittal_idx, 'sagittal',
-                        structures if show_structures else None,
-                        volume_info,
-                        (window_width, window_center),
-                        st.session_state.needle_trajectories if show_needle_trajectories else None,
-                        st.session_state.ctv_centroid,
-                        diametro_mm,
-                        longitud_mm,
-                        show_cylinder_2d,
-                        linewidth=linewidth,
-                        invert_colors=invert_colors
-                    )
-                    if fig_sagittal:
-                        st.pyplot(fig_sagittal)
-
-                # Visualización 3D
-                if show_3d_visualization and structures and st.session_state.ctv_centroid is not None:
-                    st.markdown("### Visualización 3D")
-                    fig_3d = draw_3d_visualization(
-                        structures,
-                        st.session_state.needle_trajectories,
-                        volume_info,
-                        diametro_mm,
-                        longitud_mm,
-                        st.session_state.ctv_centroid
-                    )
-                    if fig_3d:
-                        st.plotly_chart(fig_3d, use_container_width=True)
-
-                # Generar código FreeCAD
-                needle_code = ""
-                needle_positions_str = ""
-                for i, (entry, traj) in enumerate(zip(st.session_state.needle_entries, st.session_state.needle_trajectories)):
-                    feasible = traj['feasible']
-                    x, y = entry[0], entry[1]
-                    angle_adj = traj['angle_adjustment']
-                    needle_positions_str += f"  - Aguja {i+1}: (x={x:.2f}, y={y:.2f}, z=0), Ángulo ajuste: {angle_adj}°, {'Válida' if feasible else 'Inválida'}\n"
-                    if feasible:
-                        needle_code += f"""
-# Aguja {i+1}
-needle_{i+1} = Part.makeCylinder({needle_diameter/2}, {longitud_mm*1.2}, App.Vector({x}, {y}, -{longitud_mm*0.1}), App.Vector(0, 0, 1))
-cylinder = cylinder.cut(needle_{i+1})
-"""
-
-        else:
-            st.warning("No se encontraron imágenes DICOM en el ZIP.")
-
-except Exception as e:
-    st.error(f"Error crítico en la aplicación: {e}")
-    st.code(traceback.format_exc())
+    return series_found
+
+def apply_window_level(image, window_width, window_center):
+    img_float = image.astype(float)
+    min_v = window_center - window_width / 2.0
+    max_v = window_center + window_width / 2.0
+    windowed = np.clip(img_float, min_v, max_v)
+    if max_v != min_v:
+        return (windowed - min_v) / (max_v - min_v)
+    return np.zeros_like(img_float)
+
+dirname = None
+if uploaded_file:
+    temp_dir = tempfile.mkdtemp()
+    with zipfile.ZipFile(io.BytesIO(uploaded_file.read()), 'r') as zip_ref:
+        zip_ref.extractall(temp_dir)
+    dirname = temp_dir
+    st.sidebar.success("Archivos extraídos correctamente.")
+
+dicom_series = None
+img = None
+original_image = None
+if dirname:
+    with st.spinner('Buscando series DICOM...'):
+        dicom_series = find_dicom_series(dirname)
+    if dicom_series:
+        options = [f"Serie {i + 1}: {series[0][:10]}... ({len(series[2])} archivos)" for i, series in enumerate(dicom_series)]
+        selection = st.sidebar.selectbox("Seleccionar serie DICOM:", options)
+        selected_idx = options.index(selection)
+        sid, dirpath, files = dicom_series[selected_idx]
+        reader = sitk.ImageSeriesReader()
+        reader.SetFileNames(files)
+        data = reader.Execute()
+        img = sitk.GetArrayViewFromImage(data)
+        original_image = img
+    else:
+        st.sidebar.error("No se encontraron DICOM válidos en el ZIP cargado.")
+
+if img is not None:
+    n_ax, n_cor, n_sag = img.shape
+    min_val, max_val = float(img.min()), float(img.max())
+    default_ww = max_val - min_val
+    default_wc = min_val + default_ww / 2
+    ww, wc = default_ww, default_wc
+
+    corte = st.sidebar.radio("Selecciona el tipo de corte", ("Axial", "Coronal", "Sagital"))
+
+    if corte == "Axial":
+        corte_idx = st.sidebar.slider("Selecciona el índice axial", 0, n_ax - 1, n_ax // 2)
+        axial_img = img[corte_idx, :, :]
+        coronal_img = img[:, n_cor // 2, :]
+        sagital_img = img[:, :, n_sag // 2]
+    elif corte == "Coronal":
+        corte_idx = st.sidebar.slider("Selecciona el índice coronal", 0, n_cor - 1, n_cor // 2)
+        coronal_img = img[:, corte_idx, :]
+        axial_img = img[n_ax // 2, :, :]
+        sagital_img = img[:, :, n_sag // 2]
+    elif corte == "Sagital":
+        corte_idx = st.sidebar.slider("Selecciona el índice sagital", 0, n_sag - 1, n_sag // 2)
+        sagital_img = img[:, :, corte_idx]
+        axial_img = img[n_ax // 2, :, :]
+        coronal_img = img[:, n_cor // 2, :]
+
+    # Mostrar imágenes 2D en una fila
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("*Axial*")
+        fig1, ax1 = plt.subplots()
+        ax1.axis('off')
+        ax1.imshow(apply_window_level(axial_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig1)
+
+    with col2:
+        st.markdown("*Coronal*")
+        fig2, ax2 = plt.subplots()
+        ax2.axis('off')
+        ax2.imshow(apply_window_level(coronal_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig2)
+
+    with col3:
+        st.markdown("*Sagital*")
+        fig3, ax3 = plt.subplots()
+        ax3.axis('off')
+        ax3.imshow(apply_window_level(sagital_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig3)
+
+    # Imagen 3D
+    target_shape = (64, 64, 64)
+    img_resized = resize(original_image, target_shape, anti_aliasing=True)
+    x, y, z = np.mgrid[0:target_shape[0], 0:target_shape[1], 0:target_shape[2]]
+    fig3d = go.Figure(data=go.Volume(
+        x=x.flatten(), y=y.flatten(), z=z.flatten(),
+        value=img_resized.flatten(),
+        opacity=0.1,
+        surface_count=15,
+        colorscale="Gray",
+    ))
+    fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+
+    st.subheader("Vista 3D")
+    st.plotly_chart(fig3d, use_container_width=True)
+
+st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
+st.markdown("""
+<hr>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    Brachyanalysis - Visualizador de imágenes DICOM
+</div>
+""", unsafe_allow_html=True)
