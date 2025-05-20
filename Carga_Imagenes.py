@@ -46,10 +46,13 @@ img = None
 if zip_file:
     with st.spinner('Cargando serie DICOM...'):
         img = load_first_series(zip_file)
+        # Convertir a numpy array para asegurar compatibilidad
+        if img is not None:
+            img = np.asarray(img)
     if img is None:
         st.sidebar.error("No se encontró ninguna serie DICOM válida en el ZIP.")
 
-# Función de ventana/nivel
+# Función de ventana/nivel/nivel
 def window_image(slice2d, ww, wl):
     arr = slice2d.astype(float)
     mn = wl - ww/2.0
