@@ -150,4 +150,7 @@ st.markdown("""
 <div style="text-align:center;color:#28aec5;font-size:14px;">
     BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
 </div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    Proyecto asigantura medialab 3- Universidad EAFIT - Clinica Las Américas AUNA - Nicolás Ramirez - Alejandra Montiel - Maria Camila Diaz- Maria Paula Jaimes
+</div>
 """, unsafe_allow_html=True)
