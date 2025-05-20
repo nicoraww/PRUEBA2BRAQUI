@@ -147,10 +147,29 @@ if img is not None:
 st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
 st.markdown("""
 <hr>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:50px;">
     BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
 </div>
 <div style="text-align:center;color:#28aec5;font-size:14px;">
-    Proyecto asigantura medialab 3- Universidad EAFIT - Clinica Las Américas AUNA - Nicolás Ramirez - Alejandra Montiel - Maria Camila Diaz- Maria Paula Jaimes
+    Proyecto asigantura medialab 3
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    Universidad EAFIT 
+</div>
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    Clinica Las Américas AUNA - Nicolás Ramirez - Alejandra Montiel - Maria Camila Diaz- Maria Paula Jaimes
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    - Nicolás Ramirez 
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+     - Alejandra Montiel
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+     - Maria Camila Diaz- Maria Paula Jaimes
+</div>
+<div style="text-align:center;color:#28aec5;font-size:14px;">
+    - Maria Paula Jaimes
 </div>
 """, unsafe_allow_html=True)
