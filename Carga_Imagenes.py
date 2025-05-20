@@ -11,7 +11,7 @@ import SimpleITK as sitk
 from skimage.transform import resize
 import plotly.graph_objects as go
 
-st.set_page_config(layout="wide", page_title="Brachyanalysis")
+st.set_page_config(layout="wide", page_title="BrachyCervix3000")
 
 # Logo en esquina superior izquierda (más grande)
 col1, col2 = st.columns([5, 15])
