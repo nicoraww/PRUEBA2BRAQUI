@@ -150,26 +150,26 @@ st.markdown("""
 <div style="text-align:center;color:#28aec5;font-size:50px;">
     BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
     Proyecto asigantura medialab 3
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
     Universidad EAFIT 
 </div>
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
-    Clinica Las Américas AUNA - Nicolás Ramirez - Alejandra Montiel - Maria Camila Diaz- Maria Paula Jaimes
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    Clinica Las Américas AUNA 
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
     - Nicolás Ramirez 
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
      - Alejandra Montiel
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
      - Maria Camila Diaz- Maria Paula Jaimes
 </div>
-<div style="text-align:center;color:#28aec5;font-size:14px;">
+<div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Paula Jaimes
 </div>
 """, unsafe_allow_html=True)
