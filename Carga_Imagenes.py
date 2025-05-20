@@ -28,30 +28,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Cargar dinámicamente REFERENCE.py
+# Cargar funciones desde REFERENCE.py usando exec (solo como referencia)
 app_dir = os.path.dirname(__file__)
-project_root = os.path.abspath(os.path.join(app_dir, '..'))
-candidate_paths = [
-    os.path.join(app_dir, 'REFERENCE.py'),
-    os.path.join(project_root, 'REFERENCE.py'),
-    '/mnt/data/REFERENCE.py'
-]
-reference_path = next((p for p in candidate_paths if os.path.exists(p)), None)
-if not reference_path:
-    st.error('No se encontró REFERENCE.py en rutas conocidas: ' + ', '.join(candidate_paths))
+reference_file = os.path.join(app_dir, 'REFERENCE.py')
+# Verificar que exista el archivo de referencia en el directorio de la app
+if not os.path.exists(reference_file):
+    st.error('No se encontró REFERENCE.py en el directorio de la aplicación.')
     st.stop()
-spec = importlib.util.spec_from_file_location('REFERENCE', reference_path)
-REFERENCE = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(REFERENCE)
+# Ejecutar el contenido de REFERENCE.py en el espacio global para disponer de sus funciones
+with open(reference_file, 'r') as f:
+    reference_code = f.read()
+exec(reference_code, globals())
 
-# Alias a funciones clave
-extract_zip = REFERENCE.extract_zip
-find_dicom_series = REFERENCE.find_dicom_series
-load_dicom_series = REFERENCE.load_dicom_series
-load_rtstruct = REFERENCE.load_rtstruct
-compute_needle_trajectories = REFERENCE.compute_needle_trajectories
-draw_slice = REFERENCE.draw_slice
-draw_3d_visualization = REFERENCE.draw_3d_visualization
+# Ahora están disponibles: extract_zip, find_dicom_series, load_dicom_series,
+# load_rtstruct, compute_needle_trajectories, draw_slice, draw_3d_visualization
 
 # Sidebar: carga de ZIP
 st.sidebar.markdown('<p class="sub-header">Visualizador de imágenes DICOM</p>', unsafe_allow_html=True)
