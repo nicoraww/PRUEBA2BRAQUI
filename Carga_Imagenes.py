@@ -926,3 +926,29 @@ try:
 needle_{i+1} = Part.makeCylinder({needle_diameter/2}, {longitud_mm*1.2}, App.Vector({x}, {y}, -{longitud_mm*0.1}), App.Vector(0, 0, 1))
 cylinder = cylinder.cut(needle_{i+1})
 """
+                        # Generar y descargar reporte de agujas
+                report = f"""Reporte de Agujas
+================
+Diámetro del cilindro: {diametro_mm} mm
+Longitud total: {longitud_mm} mm
+Diámetro del tándem: {tandem_diameter} mm
+Número de agujas: {num_needles}
+Diámetro de agujas: {needle_diameter} mm
+
+Posiciones y estado de las agujas:
+{needle_positions_str}
+"""
+                st.download_button(
+                    label="Descargar reporte de agujas (.txt)",
+                    data=report,
+                    file_name="reporte_agujas.txt",
+                    mime="text/plain"
+                )
+
+        else:
+            st.warning("No se encontraron imágenes DICOM en el ZIP.")
+
+except Exception as e:
+    st.error(f"Error crítico en la aplicación: {e}")
+    st.code(traceback.format_exc())
+
