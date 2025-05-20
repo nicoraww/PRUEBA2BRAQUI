@@ -24,122 +24,123 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.sidebar.markdown('<p class="sub-header">Visualizador de imágenes DICOM</p>', unsafe_allow_html=True)
-
 uploaded_file = st.sidebar.file_uploader("Sube un archivo ZIP con tus archivos DICOM", type="zip")
 
+# Funciones internas
+
 def find_dicom_series(directory):
-    series_found = []
-    for root, dirs, files in os.walk(directory):
+    series = []
+    for root, _, files in os.walk(directory):
         try:
-            series_ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
-            for sid in series_ids:
-                file_list = sitk.ImageSeriesReader.GetGDCMSeriesFileNames(root, sid)
-                if file_list:
-                    series_found.append((sid, root, file_list))
-        except Exception:
-            continue
-    return series_found
+            ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
+            for sid in ids:
+                flist = sitk.ImageSeriesReader.GetGDCMSeriesFileNames(root, sid)
+                if flist:
+                    series.append((sid, root, flist))
+        except:
+            pass
+    return series
 
-def apply_window_level(image, window_width, window_center):
-    img_float = image.astype(float)
-    min_v = window_center - window_width / 2.0
-    max_v = window_center + window_width / 2.0
-    windowed = np.clip(img_float, min_v, max_v)
-    if max_v != min_v:
-        return (windowed - min_v) / (max_v - min_v)
-    return np.zeros_like(img_float)
 
+def apply_window_level(image, ww, wc):
+    img_f = image.astype(float)
+    mn = wc - ww/2.0
+    mx = wc + ww/2.0
+    win = np.clip(img_f, mn, mx)
+    out = (win - mn) / (mx - mn) if mx!=mn else np.zeros_like(img_f)
+    return out
+
+# Extraer ZIP
 dirname = None
 if uploaded_file:
     temp_dir = tempfile.mkdtemp()
-    with zipfile.ZipFile(io.BytesIO(uploaded_file.read()), 'r') as zip_ref:
-        zip_ref.extractall(temp_dir)
+    with zipfile.ZipFile(io.BytesIO(uploaded_file.read()), 'r') as z:
+        z.extractall(temp_dir)
     dirname = temp_dir
     st.sidebar.success("Archivos extraídos correctamente.")
 
-dicom_series = None
+# Buscar y cargar serie
 img = None
-original_image = None
+original = None
 if dirname:
     with st.spinner('Buscando series DICOM...'):
-        dicom_series = find_dicom_series(dirname)
-    if dicom_series:
-        options = [f"Serie {i + 1}: {series[0][:10]}... ({len(series[2])} archivos)" for i, series in enumerate(dicom_series)]
-        selection = st.sidebar.selectbox("Seleccionar serie DICOM:", options)
-        selected_idx = options.index(selection)
-        sid, dirpath, files = dicom_series[selected_idx]
+        series = find_dicom_series(dirname)
+    if series:
+        opts = [f"Serie {i+1}: {s[0][:10]}... ({len(s[2])} ficheros)" for i,s in enumerate(series)]
+        sel = st.sidebar.selectbox("Seleccionar serie DICOM:", opts)
+        idx = opts.index(sel)
+        _, _, files = series[idx]
         reader = sitk.ImageSeriesReader()
         reader.SetFileNames(files)
-        data = reader.Execute()
-        img = sitk.GetArrayViewFromImage(data)
-        original_image = img
+        vol = reader.Execute()
+        img = sitk.GetArrayViewFromImage(vol)
+        original = img.copy()
     else:
         st.sidebar.error("No se encontraron DICOM válidos en el ZIP cargado.")
 
+# Si hay imagen cargada
 if img is not None:
     n_ax, n_cor, n_sag = img.shape
-    min_val, max_val = float(img.min()), float(img.max())
-    default_ww = max_val - min_val
-    default_wc = min_val + default_ww / 2
-    ww, wc = default_ww, default_wc
+    mn, mx = float(img.min()), float(img.max())
+    default_ww, default_wc = mx-mn, mn + (mx-mn)/2
 
-    corte = st.sidebar.radio("Selecciona el tipo de corte", ("Axial", "Coronal", "Sagital"))
+    # Sidebar opciones avanzadas
+    st.sidebar.markdown('## Selección de cortes')
+    sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
+    if sync:
+        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial','Coronal','Sagital'))
+        lims = {'Axial':n_ax-1,'Coronal':n_cor-1,'Sagital':n_sag-1}
+        mid = {'Axial':n_ax//2,'Coronal':n_cor//2,'Sagital':n_sag//2}
+        slice_idx = st.sidebar.slider('Corte (sincronizado)', 0, lims[corte], mid[corte])
+        slice_idx = st.sidebar.number_input('Corte (sincronizado)', 0, lims[corte], int(slice_idx))
+    else:
+        corte = st.sidebar.radio('Selecciona el tipo de corte', ('Axial','Coronal','Sagital'))
+        if corte=='Axial': slice_idx = st.sidebar.slider('Índice Axial', 0, n_ax-1, n_ax//2)
+        if corte=='Coronal': slice_idx = st.sidebar.slider('Índice Coronal', 0, n_cor-1, n_cor//2)
+        if corte=='Sagital': slice_idx = st.sidebar.slider('Índice Sagital', 0, n_sag-1, n_sag//2)
 
-    if corte == "Axial":
-        corte_idx = st.sidebar.slider("Selecciona el índice axial", 0, n_ax - 1, n_ax // 2)
-        axial_img = img[corte_idx, :, :]
-        coronal_img = img[:, n_cor // 2, :]
-        sagital_img = img[:, :, n_sag // 2]
-    elif corte == "Coronal":
-        corte_idx = st.sidebar.slider("Selecciona el índice coronal", 0, n_cor - 1, n_cor // 2)
-        coronal_img = img[:, corte_idx, :]
-        axial_img = img[n_ax // 2, :, :]
-        sagital_img = img[:, :, n_sag // 2]
-    elif corte == "Sagital":
-        corte_idx = st.sidebar.slider("Selecciona el índice sagital", 0, n_sag - 1, n_sag // 2)
-        sagital_img = img[:, :, corte_idx]
-        axial_img = img[n_ax // 2, :, :]
-        coronal_img = img[:, n_cor // 2, :]
+    show_3d = st.sidebar.checkbox('Mostrar visualización 3D', value=True)
+    invert = st.sidebar.checkbox('Invertir colores (Negativo)', value=False)
+    window_type = st.sidebar.selectbox('Tipo de ventana', ('Default','Abdomen','Hueso','Pulmón'))
+    # Ajustar WW/WC por presets
+    if window_type=='Default': ww,wc = default_ww, default_wc
+    elif window_type=='Abdomen': ww,wc = 400,40
+    elif window_type=='Hueso': ww,wc = 2000,500
+    elif window_type=='Pulmón': ww,wc = 1500,-600
+    else: ww,wc = default_ww, default_wc
 
-    # Mostrar imágenes 2D en una fila
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("*Axial*")
-        fig1, ax1 = plt.subplots()
-        ax1.axis('off')
-        ax1.imshow(apply_window_level(axial_img, ww, wc), cmap='gray', origin='lower')
-        st.pyplot(fig1)
+    # Preparar cortes 2D
+    axial = img[slice_idx,:,:] if corte=='Axial' else img[n_ax//2,:,:]
+    coronal = img[:,slice_idx,:] if corte=='Coronal' else img[:,n_cor//2,:]
+    sagital = img[:,:,slice_idx] if corte=='Sagital' else img[:,:,n_sag//2]
+    cortes = [('Axial',axial), ('Coronal',coronal), ('Sagital',sagital)]
 
-    with col2:
-        st.markdown("*Coronal*")
-        fig2, ax2 = plt.subplots()
-        ax2.axis('off')
-        ax2.imshow(apply_window_level(coronal_img, ww, wc), cmap='gray', origin='lower')
-        st.pyplot(fig2)
+    cols = st.columns(3)
+    for col,(name,mat) in zip(cols,cortes):
+        with col:
+            st.markdown(f"*{name}*")
+            fig,ax = plt.subplots()
+            ax.axis('off')
+            norm = apply_window_level(mat, ww, wc)
+            if invert: norm = 1 - norm
+            ax.imshow(norm, cmap='gray', origin='lower')
+            st.pyplot(fig)
 
-    with col3:
-        st.markdown("*Sagital*")
-        fig3, ax3 = plt.subplots()
-        ax3.axis('off')
-        ax3.imshow(apply_window_level(sagital_img, ww, wc), cmap='gray', origin='lower')
-        st.pyplot(fig3)
+    # Visualización 3D
+    if show_3d:
+        target=(64,64,64)
+        resized = resize(original, target, anti_aliasing=True)
+        x,y,z = np.mgrid[0:target[0],0:target[1],0:target[2]]
+        fig3d = go.Figure(data=go.Volume(
+            x=x.flatten(), y=y.flatten(), z=z.flatten(),
+            value=resized.flatten(),
+            opacity=0.1, surface_count=15, colorscale='Gray'
+        ))
+        fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
+        st.subheader('Vista 3D')
+        st.plotly_chart(fig3d, use_container_width=True)
 
-    # Imagen 3D
-    target_shape = (64, 64, 64)
-    img_resized = resize(original_image, target_shape, anti_aliasing=True)
-    x, y, z = np.mgrid[0:target_shape[0], 0:target_shape[1], 0:target_shape[2]]
-    fig3d = go.Figure(data=go.Volume(
-        x=x.flatten(), y=y.flatten(), z=z.flatten(),
-        value=img_resized.flatten(),
-        opacity=0.1,
-        surface_count=15,
-        colorscale="Gray",
-    ))
-    fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
-
-    st.subheader("Vista 3D")
-    st.plotly_chart(fig3d, use_container_width=True)
-
+# Pie de página
 st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
 st.markdown("""
 <hr>
