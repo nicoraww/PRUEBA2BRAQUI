@@ -11,7 +11,7 @@ import SimpleITK as sitk
 from skimage.transform import resize
 import plotly.graph_objects as go
 
-st.set_page_config(layout="wide", page_title="BrachyCervix3000")
+st.set_page_config(layout="wide", page_title="BrachyCervix")
 
 # Logo en esquina superior izquierda (más grande)
 col1, col2 = st.columns([5, 15])
@@ -144,10 +144,10 @@ if img is not None:
         st.plotly_chart(fig3d, use_container_width=True)
 
 # Pie de página
-st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
+st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
 st.markdown("""
 <hr>
 <div style="text-align:center;color:#28aec5;font-size:14px;">
-    Brachyanalysis - Visualizador de imágenes DICOM
+    BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
 </div>
 """, unsafe_allow_html=True)
