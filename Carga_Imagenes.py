@@ -26,10 +26,12 @@ st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
 st.sidebar.markdown('<p class="sidebar-title">Configuración DICOM</p>', unsafe_allow_html=True)
 zip_file = st.sidebar.file_uploader("Selecciona ZIP con tus archivos DICOM", type="zip")
 
-@st.cache(suppress_st_warning=True, allow_output_mutation=True)
+@st.cache_data(show_spinner=False)
 def load_first_series(uploaded):
+    """Extrae y carga la primera serie DICOM del ZIP"""
+    data = uploaded.read()
     tmpdir = tempfile.mkdtemp()
-    with zipfile.ZipFile(io.BytesIO(uploaded.read()), 'r') as zf:
+    with zipfile.ZipFile(io.BytesIO(data), 'r') as zf:
         zf.extractall(tmpdir)
     for root, _, _ in os.walk(tmpdir):
         ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
@@ -45,14 +47,14 @@ def load_first_series(uploaded):
 img = None
 if zip_file:
     with st.spinner('Cargando serie DICOM...'):
-        img = load_first_series(zip_file)
-        # Convertir a numpy array para asegurar compatibilidad
-        if img is not None:
-            img = np.asarray(img)
+        series = load_first_series(zip_file)
+        if series is not None:
+            img = np.asarray(series)
     if img is None:
         st.sidebar.error("No se encontró ninguna serie DICOM válida en el ZIP.")
 
-# Función de ventana/nivel/nivel
+# Funciones de procesamiento
+
 def window_image(slice2d, ww, wl):
     arr = slice2d.astype(float)
     mn = wl - ww/2.0
@@ -60,30 +62,28 @@ def window_image(slice2d, ww, wl):
     clipped = np.clip(arr, mn, mx)
     return (clipped - mn)/(mx - mn) if mx != mn else np.zeros_like(arr)
 
-# Renderizado de un slice
 def render_slice(slice2d, ww, wl):
     fig, ax = plt.subplots(figsize=(4,4))
     ax.imshow(window_image(slice2d, ww, wl), cmap='gray', origin='lower')
     ax.axis('off')
     return fig
 
-# Mostrar cuadrícula de vistas 2D
-    if img is not None:
-        # Asegurar que el volumen tenga al menos 3 dimensiones
-        if img.ndim == 2:
-            img = img[np.newaxis, :, :]
-        elif img.ndim > 3:
-            # Si lleva dimensión de tiempo u otra, descartarla
-            img = img[0]
-        nz, ny, nx = img.shape  # Definir dimensiones siempre
+if img is not None:
+    # Normalizar dimensiones a 3D
+    if img.ndim == 2:
+        img = img[np.newaxis, :, :]
+    elif img.ndim > 3:
+        img = img[0]
 
-        # Sliders de cortes
-        st.sidebar.subheader('Cortes')
-        z_ix = st.sidebar.slider('Axial', 0, nz-1, nz//2)
-        y_ix = st.sidebar.slider('Coronal', 0, ny-1, ny//2)
-        x_ix = st.sidebar.slider('Sagital', 0, nx-1, nx//2)
+    nz, ny, nx = img.shape
 
-    # Controles de ventana/nivel/nivel
+    # Sliders de cortes
+    st.sidebar.subheader('Cortes')
+    z_ix = st.sidebar.slider('Axial', 0, nz-1, nz//2)
+    y_ix = st.sidebar.slider('Coronal', 0, ny-1, ny//2)
+    x_ix = st.sidebar.slider('Sagital', 0, nx-1, nx//2)
+
+    # Controles de ventana/nivel
     st.sidebar.subheader('Ventana y Nivel (WW/WL)')
     min_val, max_val = float(img.min()), float(img.max())
     default_ww = max_val - min_val if max_val>min_val else 1.0
@@ -91,18 +91,18 @@ def render_slice(slice2d, ww, wl):
     ww = st.sidebar.number_input('WW', min_value=1.0, value=default_ww)
     wl = st.sidebar.number_input('WL', value=default_wl)
 
-    # Cuadrícula de tres vistas
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    # Layout en cuadrícula
+    col1, col2, col3 = st.columns(3)
+    with col1:
         st.subheader('Axial')
         st.pyplot(render_slice(img[z_ix,:,:], ww, wl))
-    with c2:
+    with col2:
         st.subheader('Coronal')
         st.pyplot(render_slice(img[:,y_ix,:], ww, wl))
-    with c3:
+    with col3:
         st.subheader('Sagital')
         st.pyplot(render_slice(img[:,:,x_ix], ww, wl))
 
-    # Pie de página
-    st.markdown('---')
-    st.markdown('<div style="text-align:center;color:#28aec5;font-size:14px;">Brachyanalysis - 2D Quadrants Viewer</div>', unsafe_allow_html=True)
+# Pie de página
+st.markdown('---')
+st.markdown('<div style="text-align:center;color:#28aec5;font-size:14px;">Brachyanalysis - 2D Quadrants Viewer</div>', unsafe_allow_html=True)
