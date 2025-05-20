@@ -13,10 +13,10 @@ import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Brachyanalysis")
 
-# Logo en esquina superior izquierda
-col1, col2 = st.columns([1, 10])
+# Logo en esquina superior izquierda (más grande)
+col1, col2 = st.columns([2, 10])
 with col1:
-    st.image("Banner.png", width=1000000)
+    st.image("logo.png", width=200)
 
 # Estilos
 st.markdown("""
