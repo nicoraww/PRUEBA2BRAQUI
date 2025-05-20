@@ -1,9 +1,7 @@
 import os
-import sys
 import io
 import zipfile
 import tempfile
-import importlib.util
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,139 +10,140 @@ import streamlit as st
 import SimpleITK as sitk
 from skimage.transform import resize
 import plotly.graph_objects as go
-import pydicom
 
-# Configuración de la página
 st.set_page_config(layout="wide", page_title="Brachyanalysis")
 
-# Estilos personalizados
+# Estilos
 st.markdown("""
 <style>
     .giant-title { color: #28aec5; text-align: center; font-size: 72px; margin: 30px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; text-shadow: 2px 2px 4px rgba(0,0,0,0.1); }
     .sub-header { color: #c0d711; font-size: 24px; margin-bottom: 15px; font-weight: bold; }
-    .sidebar-title { color: #28aec5; font-size: 20px; margin-top: 20px; margin-bottom: 10px; font-weight: bold; }
     .stButton>button { background-color: #28aec5; color: white; border: none; border-radius: 4px; padding: 8px 16px; }
     .stButton>button:hover { background-color: #1c94aa; }
 </style>
 """, unsafe_allow_html=True)
 
-# Cargar funciones desde REFERENCE.py usando exec (solo como referencia)
-app_dir = os.path.dirname(__file__)
-reference_file = os.path.join(app_dir, 'REFERENCE.py')
-# Verificar que exista el archivo de referencia en el directorio de la app
-if not os.path.exists(reference_file):
-    st.error('No se encontró REFERENCE.py en el directorio de la aplicación.')
-    st.stop()
-# Ejecutar el contenido de REFERENCE.py en el espacio global para disponer de sus funciones
-with open(reference_file, 'r') as f:
-    reference_code = f.read()
-exec(reference_code, globals())
-
-# Ahora están disponibles: extract_zip, find_dicom_series, load_dicom_series,
-# load_rtstruct, compute_needle_trajectories, draw_slice, draw_3d_visualization
-
-# Sidebar: carga de ZIP
 st.sidebar.markdown('<p class="sub-header">Visualizador de imágenes DICOM</p>', unsafe_allow_html=True)
-uploaded_file = st.sidebar.file_uploader('Sube un archivo ZIP con tus archivos DICOM', type='zip')
 
+uploaded_file = st.sidebar.file_uploader("Sube un archivo ZIP con tus archivos DICOM", type="zip")
+
+def find_dicom_series(directory):
+    series_found = []
+    for root, dirs, files in os.walk(directory):
+        try:
+            series_ids = sitk.ImageSeriesReader.GetGDCMSeriesIDs(root)
+            for sid in series_ids:
+                file_list = sitk.ImageSeriesReader.GetGDCMSeriesFileNames(root, sid)
+                if file_list:
+                    series_found.append((sid, root, file_list))
+        except Exception:
+            continue
+    return series_found
+
+def apply_window_level(image, window_width, window_center):
+    img_float = image.astype(float)
+    min_v = window_center - window_width / 2.0
+    max_v = window_center + window_width / 2.0
+    windowed = np.clip(img_float, min_v, max_v)
+    if max_v != min_v:
+        return (windowed - min_v) / (max_v - min_v)
+    return np.zeros_like(img_float)
+
+dirname = None
 if uploaded_file:
-    # Extraer contenido del ZIP
     temp_dir = tempfile.mkdtemp()
     with zipfile.ZipFile(io.BytesIO(uploaded_file.read()), 'r') as zip_ref:
         zip_ref.extractall(temp_dir)
-    st.sidebar.success('Archivos extraídos correctamente.')
+    dirname = temp_dir
+    st.sidebar.success("Archivos extraídos correctamente.")
 
-    # Buscar series DICOM
+dicom_series = None
+img = None
+original_image = None
+if dirname:
     with st.spinner('Buscando series DICOM...'):
-        series = find_dicom_series(temp_dir)
-    if not series:
-        st.sidebar.error('No se encontraron series DICOM válidas en el ZIP.')
+        dicom_series = find_dicom_series(dirname)
+    if dicom_series:
+        options = [f"Serie {i + 1}: {series[0][:10]}... ({len(series[2])} archivos)" for i, series in enumerate(dicom_series)]
+        selection = st.sidebar.selectbox("Seleccionar serie DICOM:", options)
+        selected_idx = options.index(selection)
+        sid, dirpath, files = dicom_series[selected_idx]
+        reader = sitk.ImageSeriesReader()
+        reader.SetFileNames(files)
+        data = reader.Execute()
+        img = sitk.GetArrayViewFromImage(data)
+        original_image = img
     else:
-        sid, root_dir, file_list = series[0]
-        volume, volume_info = load_dicom_series(file_list)
+        st.sidebar.error("No se encontraron DICOM válidos en el ZIP cargado.")
 
-        # Cargar estructuras RTSTRUCT
-        rtstruct_path = None
-        for rd, dirs, files in os.walk(temp_dir):
-            for fname in files:
-                if fname.lower().endswith('.dcm'):
-                    ds = pydicom.dcmread(os.path.join(rd, fname), stop_before_pixels=True)
-                    if getattr(ds, 'Modality', '') == 'RTSTRUCT':
-                        rtstruct_path = os.path.join(rd, fname)
-                        break
-            if rtstruct_path:
-                break
-        structures = load_rtstruct(rtstruct_path) if rtstruct_path else {}
-        if not rtstruct_path:
-            st.sidebar.warning('No se encontró RTSTRUCT; estructuras deshabilitadas.')
+if img is not None:
+    n_ax, n_cor, n_sag = img.shape
+    min_val, max_val = float(img.min()), float(img.max())
+    default_ww = max_val - min_val
+    default_wc = min_val + default_ww / 2
+    ww, wc = default_ww, default_wc
 
-        # Parámetros CTV y agujas
-        st.sidebar.markdown('<p class="sidebar-title">Configuración de CTV y Agujas</p>', unsafe_allow_html=True)
-        num_needles = st.sidebar.slider('Número de agujas', 1, 12, 6)
-        cyl_d = st.sidebar.number_input('Diámetro del cilindro CT (mm)', 1.0, 100.0, 20.0, 0.1)
-        cyl_l = st.sidebar.number_input('Longitud del cilindro CT (mm)', 1.0, 200.0, 50.0, 0.1)
-        offsets = [
-            st.sidebar.number_input('Offset CTV X (mm)', value=0.0, step=0.1),
-            st.sidebar.number_input('Offset CTV Y (mm)', value=0.0, step=0.1),
-            st.sidebar.number_input('Offset CTV Z (mm)', value=0.0, step=0.1)
-        ]
+    corte = st.sidebar.radio("Selecciona el tipo de corte", ("Axial", "Coronal", "Sagital"))
 
-        # Calcular centroid CTV
-        ctv_centroid = None
-        if 'CTV' in structures:
-            pts = np.vstack([c['points'] for c in structures['CTV']['contours']])
-            ctv_centroid = pts.mean(axis=0) + np.array(offsets)
-        else:
-            st.sidebar.warning("Estructura 'CTV' no encontrada.")
+    if corte == "Axial":
+        corte_idx = st.sidebar.slider("Selecciona el índice axial", 0, n_ax - 1, n_ax // 2)
+        axial_img = img[corte_idx, :, :]
+        coronal_img = img[:, n_cor // 2, :]
+        sagital_img = img[:, :, n_sag // 2]
+    elif corte == "Coronal":
+        corte_idx = st.sidebar.slider("Selecciona el índice coronal", 0, n_cor - 1, n_cor // 2)
+        coronal_img = img[:, corte_idx, :]
+        axial_img = img[n_ax // 2, :, :]
+        sagital_img = img[:, :, n_sag // 2]
+    elif corte == "Sagital":
+        corte_idx = st.sidebar.slider("Selecciona el índice sagital", 0, n_sag - 1, n_sag // 2)
+        sagital_img = img[:, :, corte_idx]
+        axial_img = img[n_ax // 2, :, :]
+        coronal_img = img[:, n_cor // 2, :]
 
-        # Trayectorias de agujas
-        entries, trajectories = compute_needle_trajectories(
-            num_needles, cyl_d, cyl_l, structures, volume_info, offsets
-        )
+    # Mostrar imágenes 2D en una fila
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("*Axial*")
+        fig1, ax1 = plt.subplots()
+        ax1.axis('off')
+        ax1.imshow(apply_window_level(axial_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig1)
 
-        # Opciones de visualización
-        st.sidebar.markdown('<p class="sidebar-title">Opciones de visualización</p>', unsafe_allow_html=True)
-        show_struct = st.sidebar.checkbox('Mostrar estructuras', True)
-        show_needles = st.sidebar.checkbox('Mostrar trayectorias de agujas', True)
-        show_cyl2d = st.sidebar.checkbox('Mostrar cilindro 2D', True)
-        lw = st.sidebar.slider('Grosor de líneas', 1, 8, 2)
+    with col2:
+        st.markdown("*Coronal*")
+        fig2, ax2 = plt.subplots()
+        ax2.axis('off')
+        ax2.imshow(apply_window_level(coronal_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig2)
 
-        # Selección de corte y renderizado
-        corte = st.sidebar.radio('Selecciona el tipo de corte', ['Axial','Coronal','Sagital'])
-        idx = {
-            'Axial': st.sidebar.slider('Índice Axial', 0, volume.shape[0]-1, volume.shape[0]//2),
-            'Coronal': st.sidebar.slider('Índice Coronal', 0, volume.shape[1]-1, volume.shape[1]//2),
-            'Sagital': st.sidebar.slider('Índice Sagital', 0, volume.shape[2]-1, volume.shape[2]//2)
-        }[corte]
-        planes = ['axial','coronal','sagittal']
-        cols = st.columns(3)
-        for col, pl in zip(cols, planes):
-            with col:
-                st.markdown(f'*{pl.capitalize()}*')
-                fig = draw_slice(
-                    volume, idx if pl.lower()==corte.lower() else None,
-                    pl, structures, volume_info,
-                    needle_trajectories=trajectories if show_needles else [],
-                    cylinder_diameter=cyl_d, cylinder_length=cyl_l,
-                    ctv_centroid=ctv_centroid, show_structures=show_struct,
-                    show_cylinder_2d=show_cyl2d, linewidth=lw
-                )
-                st.pyplot(fig)
+    with col3:
+        st.markdown("*Sagital*")
+        fig3, ax3 = plt.subplots()
+        ax3.axis('off')
+        ax3.imshow(apply_window_level(sagital_img, ww, wc), cmap='gray', origin='lower')
+        st.pyplot(fig3)
 
-        # Vista 3D
-        st.subheader('Vista 3D')
-        fig3d = draw_3d_visualization(
-            structures, trajectories if show_needles else [],
-            volume_info, cyl_d, cyl_l, ctv_centroid
-        )
-        if fig3d:
-            st.plotly_chart(fig3d, use_container_width=True)
+    # Imagen 3D
+    target_shape = (64, 64, 64)
+    img_resized = resize(original_image, target_shape, anti_aliasing=True)
+    x, y, z = np.mgrid[0:target_shape[0], 0:target_shape[1], 0:target_shape[2]]
+    fig3d = go.Figure(data=go.Volume(
+        x=x.flatten(), y=y.flatten(), z=z.flatten(),
+        value=img_resized.flatten(),
+        opacity=0.1,
+        surface_count=15,
+        colorscale="Gray",
+    ))
+    fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
 
-# Footer
+    st.subheader("Vista 3D")
+    st.plotly_chart(fig3d, use_container_width=True)
+
 st.markdown('<p class="giant-title">Brachyanalysis</p>', unsafe_allow_html=True)
 st.markdown("""
 <hr>
 <div style="text-align:center;color:#28aec5;font-size:14px;">
-    Brachyanalysis - Visualizador de imágenes DICOM con estructuras y planificación
+    Brachyanalysis - Visualizador de imágenes DICOM
 </div>
 """, unsafe_allow_html=True)
