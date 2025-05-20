@@ -1,7 +1,16 @@
 import os
+import sys
 import io
 import zipfile
 import tempfile
+
+# Asegurar que REFERENCE.py esté en el path de importación
+app_dir = os.path.dirname(__file__)
+# Ruta al directorio de la aplicación (donde puede estar REFERENCE.py)
+project_root = os.path.abspath(os.path.join(app_dir, '..'))
+sys.path.insert(0, project_root)
+# Ruta alternativa en caso de desarrollo local
+sys.path.insert(0, '/mnt/data')
 
 import numpy as np
 import matplotlib.pyplot as plt
