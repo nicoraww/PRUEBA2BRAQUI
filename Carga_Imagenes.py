@@ -16,7 +16,7 @@ st.set_page_config(layout="wide", page_title="Brachyanalysis")
 # Logo en esquina superior izquierda
 col1, col2 = st.columns([1, 10])
 with col1:
-    st.image("Banner.png", width=60)
+    st.image("Banner.png", width=1000)
 
 # Estilos
 st.markdown("""
