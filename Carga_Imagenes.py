@@ -186,6 +186,20 @@ if img is not None:
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
 
+        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+        st.subheader('Vista 3D')
+        st.plotly_chart(fig3d, use_container_width=True)
+
+        # Registro de agujas
+        st.markdown('### Registro de agujas')
+        if st.session_state['needles']:
+            for i, needle in enumerate(st.session_state['needles'], start=1):
+                (x1, y1, z1), (x2, y2, z2) = needle['points']
+                color = needle['color']
+                st.markdown(f"- **Aguja {i}**: Punto A=({x1:.1f}, {y1:.1f}, {z1:.1f}), Punto B=({x2:.1f}, {y2:.1f}, {z2:.1f}), Color=`{color}`")
+        else:
+            st.markdown("*No hay agujas registradas.*")
+
 # Pie de página
 st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
 st.markdown("""
