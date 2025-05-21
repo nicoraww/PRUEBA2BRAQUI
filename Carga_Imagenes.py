@@ -251,3 +251,8 @@ st.markdown("""
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Camila Diaz
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    - Maria Paula Jaimes
+</div>
+""", unsafe_allow_html=True)
