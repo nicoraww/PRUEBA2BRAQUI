@@ -33,7 +33,6 @@ st.sidebar.markdown('<p class="sub-header">Visualizador de imágenes DICOM</p>',
 uploaded_file = st.sidebar.file_uploader("Sube un archivo ZIP con tus archivos DICOM", type="zip")
 
 # Funciones internas
-
 def find_dicom_series(directory):
     series = []
     for root, _, files in os.walk(directory):
@@ -47,13 +46,12 @@ def find_dicom_series(directory):
             pass
     return series
 
-
 def apply_window_level(image, ww, wc):
     img_f = image.astype(float)
     mn = wc - ww/2.0
     mx = wc + ww/2.0
     win = np.clip(img_f, mn, mx)
-    return (win - mn) / (mx - mn) if mx!=mn else np.zeros_like(img_f)
+    return (win - mn) / (mx - mn) if mx != mn else np.zeros_like(img_f)
 
 # Extraer ZIP
 dirname = None
@@ -71,7 +69,7 @@ if dirname:
     with st.spinner('Buscando series DICOM...'):
         series = find_dicom_series(dirname)
     if series:
-        opts = [f"Serie {i+1}: {s[0][:10]}... ({len(s[2])} ficheros)" for i,s in enumerate(series)]
+        opts = [f"Serie {i+1}: {s[0][:10]}... ({len(s[2])} ficheros)" for i, s in enumerate(series)]
         sel = st.sidebar.selectbox("Seleccionar serie DICOM:", opts)
         idx = opts.index(sel)
         _, _, files = series[idx]
@@ -92,47 +90,53 @@ if img is not None:
     # Seleccionar cortes
     sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
     if sync:
-        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial','Coronal','Sagital'))
-        lims = {'Axial':n_ax-1,'Coronal':n_cor-1,'Sagital':n_sag-1}
-        mids = {'Axial':n_ax//2,'Coronal':n_cor//2,'Sagital':n_sag//2}
+        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial', 'Coronal', 'Sagital'))
+        lims = {'Axial': n_ax-1, 'Coronal': n_cor-1, 'Sagital': n_sag-1}
+        mids = {'Axial': n_ax//2, 'Coronal': n_cor//2, 'Sagital': n_sag//2}
         idx_slider = st.sidebar.slider('Corte (sincronizado)', 0, lims[corte], mids[corte])
         slice_idx = st.sidebar.number_input('Corte (sincronizado)', 0, lims[corte], idx_slider)
     else:
-        corte = st.sidebar.radio('Selecciona el tipo de corte', ('Axial','Coronal','Sagital'))
-        if corte=='Axial': slice_idx = st.sidebar.slider('Índice Axial', 0, n_ax-1, n_ax//2)
-        if corte=='Coronal': slice_idx = st.sidebar.slider('Índice Coronal', 0, n_cor-1, n_cor//2)
-        if corte=='Sagital': slice_idx = st.sidebar.slider('Índice Sagital', 0, n_sag-1, n_sag//2)
+        corte = st.sidebar.radio('Selecciona el tipo de corte', ('Axial', 'Coronal', 'Sagital'))
+        if corte == 'Axial':
+            slice_idx = st.sidebar.slider('Índice Axial', 0, n_ax-1, n_ax//2)
+        elif corte == 'Coronal':
+            slice_idx = st.sidebar.slider('Índice Coronal', 0, n_cor-1, n_cor//2)
+        else:
+            slice_idx = st.sidebar.slider('Índice Sagital', 0, n_sag-1, n_sag//2)
 
     # Opciones adicionales
     show_3d = st.sidebar.checkbox('Mostrar visualización 3D', value=True)
     invert = st.sidebar.checkbox('Invertir colores (Negativo)', value=False)
-    window_type = st.sidebar.selectbox('Tipo de ventana', ('Default','Abdomen','Hueso','Pulmón'))
-    if window_type=='Default': ww,wc = default_ww, default_wc
-    elif window_type=='Abdomen': ww,wc = 400,40
-    elif window_type=='Hueso': ww,wc = 2000,500
-    elif window_type=='Pulmón': ww,wc = 1500,-600
-    else: ww,wc = default_ww, default_wc
+    window_type = st.sidebar.selectbox('Tipo de ventana', ('Default', 'Abdomen', 'Hueso', 'Pulmón'))
+    if window_type == 'Default':
+        ww, wc = default_ww, default_wc
+    elif window_type == 'Abdomen':
+        ww, wc = 400, 40
+    elif window_type == 'Hueso':
+        ww, wc = 2000, 500
+    else:
+        ww, wc = 1500, -600
 
     # Preparar cortes 2D
-    axial = img[slice_idx,:,:] if corte=='Axial' else img[n_ax//2,:,:]
-    coronal = img[:,slice_idx,:] if corte=='Coronal' else img[:,n_cor//2,:]
-    sagital = img[:,:,slice_idx] if corte=='Sagital' else img[:,:,n_sag//2]
-    cortes = [('Axial',axial), ('Coronal',coronal), ('Sagital',sagital)]
+    axial = img[slice_idx, :, :] if corte == 'Axial' else img[n_ax//2, :, :]
+    coronal = img[:, slice_idx, :] if corte == 'Coronal' else img[:, n_cor//2, :]
+    sagital = img[:, :, slice_idx] if corte == 'Sagital' else img[:, :, n_sag//2]
+    cortes = [('Axial', axial), ('Coronal', coronal), ('Sagital', sagital)]
 
     cols = st.columns(3)
-    for col,(name,mat) in zip(cols,cortes):
+    for col, (name, mat) in zip(cols, cortes):
         with col:
             st.markdown(f"{name}")
-            fig,ax = plt.subplots()
+            fig, ax = plt.subplots()
             ax.axis('off')
             norm = apply_window_level(mat, ww, wc)
-            if invert: norm = 1 - norm
+            if invert:
+                norm = 1 - norm
             ax.imshow(norm, cmap='gray', origin='lower')
             st.pyplot(fig)
 
     # Visualización 3D con agujas agregables
     if show_3d:
-        from skimage.measure import marching_cubes
         resized = resize(original, (64, 64, 64), anti_aliasing=True)
 
         if 'needles' not in st.session_state:
@@ -150,11 +154,64 @@ if img is not None:
                 z2 = st.number_input("Z2", 0.0, 64.0, 32.0)
             if st.button("Agregar Aguja"):
                 color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
-                st.session_state['needles'].append({'points': ((x1, y1, z1), (x2, y2, z2)), 'color': color})
+                st.session_state['needles'].append({
+                    'points': ((x1, y1, z1), (x2, y2, z2)),
+                    'color': color
+                })
 
+        # Crear figura 3D
         xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
         fig3d = go.Figure(data=[
             go.Volume(
                 x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-                value=resized.flatten(),
-                opacity=0.1, surface_count=15, colorscale='Gray'
+                value=resized.flatten(), opacity=0.1,
+                surface_count=15, colorscale='Gray'
+            )
+        ])
+
+        # Dibujar agujas (puntos y líneas)
+        for needle in st.session_state['needles']:
+            (x1, y1, z1), (x2, y2, z2) = needle['points']
+            col = needle['color']
+            fig3d.add_trace(
+                go.Scatter3d(
+                    x=[x1, x2], y=[y1, y2], z=[z1, z2],
+                    mode='markers+lines',
+                    marker=dict(size=5, color=col),
+                    line=dict(width=3, color=col)
+                )
+            )
+
+        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+        st.subheader('Vista 3D')
+        st.plotly_chart(fig3d, use_container_width=True)
+
+# Pie de página
+st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
+st.markdown("""
+<hr>
+<div style="text-align:center;color:#28aec5;font-size:50px;">
+    BrachyCervix - Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    Proyecto asignatura medialab 3
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    Universidad EAFIT 
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    Clínica Las Américas AUNA 
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    - Nicolás Ramirez 
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    - Alejandra Montiel
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    - Maria Camila Diaz
+</div>
+<div style="text-align:center;color:#28aec5;font-size:20px;">
+    - Maria Paula Jaimes
+</div>
+""", unsafe_allow_html=True)
