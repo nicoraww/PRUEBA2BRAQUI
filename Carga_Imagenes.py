@@ -2,6 +2,7 @@ import os
 import io
 import zipfile
 import tempfile
+import random
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -86,7 +87,7 @@ if dirname:
 if img is not None:
     n_ax, n_cor, n_sag = img.shape
     mn, mx = float(img.min()), float(img.max())
-    default_ww, default_wc = mx-mn, mn + (mx-mn)/2
+    default_ww, default_wc = mx-mn, mn + (mx-nm)/2
 
     # Seleccionar cortes
     sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
@@ -129,40 +130,49 @@ if img is not None:
             ax.imshow(norm, cmap='gray', origin='lower')
             st.pyplot(fig)
 
-    # Visualización 3D con puntos y líneas agregables
+    # Visualización 3D con agujas agregables
     if show_3d:
         from skimage.measure import marching_cubes
         resized = resize(original, (64, 64, 64), anti_aliasing=True)
 
-        if 'points' not in st.session_state:
-            st.session_state['points'] = []
-        if 'lines' not in st.session_state:
-            st.session_state['lines'] = []
+        if 'needles' not in st.session_state:
+            st.session_state['needles'] = []
 
-        with st.expander("Agregar punto 3D"):
-            x = st.number_input("X", 0.0, 64.0, 32.0)
-            y = st.number_input("Y", 0.0, 64.0, 32.0)
-            z = st.number_input("Z", 0.0, 64.0, 32.0)
-            if st.button("Agregar Punto"):
-                st.session_state['points'].append((x, y, z))
-
-        if len(st.session_state['points']) >= 2:
-            st.selectbox("Seleccionar primer punto", options=list(range(len(st.session_state['points']))), key='p1')
-            st.selectbox("Seleccionar segundo punto", options=list(range(len(st.session_state['points']))), key='p2')
-            if st.button("Agregar línea"):
-                st.session_state['lines'].append((st.session_state['points'][st.session_state['p1']], st.session_state['points'][st.session_state['p2']]))
+        with st.expander("Agregar aguja 3D"):
+            col_a1, col_a2 = st.columns(2)
+            with col_a1:
+                x1 = st.number_input("X1", 0.0, 64.0, 32.0)
+                y1 = st.number_input("Y1", 0.0, 64.0, 32.0)
+                z1 = st.number_input("Z1", 0.0, 64.0, 32.0)
+            with col_a2:
+                x2 = st.number_input("X2", 0.0, 64.0, 32.0)
+                y2 = st.number_input("Y2", 0.0, 64.0, 32.0)
+                z2 = st.number_input("Z2", 0.0, 64.0, 32.0)
+            if st.button("Agregar Aguja"):
+                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
+                st.session_state['needles'].append({'points': ((x1, y1, z1), (x2, y2, z2)), 'color': color})
 
         xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
-        fig3d = go.Figure(data=[go.Volume(
-            x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-            value=resized.flatten(),
-            opacity=0.1, surface_count=15, colorscale='Gray')
+        fig3d = go.Figure(data=[
+            go.Volume(
+                x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
+                value=resized.flatten(),
+                opacity=0.1, surface_count=15, colorscale='Gray'
+            )
         ])
 
-        for pt in st.session_state['points']:
-            fig3d.add_trace(go.Scatter3d(x=[pt[0]], y=[pt[1]], z=[pt[2]], mode='markers', marker=dict(size=5, color='red')))
-        for a, b in st.session_state['lines']:
-            fig3d.add_trace(go.Scatter3d(x=[a[0], b[0]], y=[a[1], b[1]], z=[a[2], b[2]], mode='lines', line=dict(color='blue')))
+        # Dibujar agujas
+        for needle in st.session_state['needles']:
+            (x1, y1, z1), (x2, y2, z2) = needle['points']
+            col = needle['color']
+            fig3d.add_trace(
+                go.Scatter3d(
+                    x=[x1, x2], y=[y1, y2], z=[z1, z2],
+                    mode='lines+markers',
+                    marker=dict(size=5, color=col),
+                    line=dict(width=3, color=col)
+                )
+            )
 
         fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
         st.subheader('Vista 3D')
