@@ -138,87 +138,59 @@ if img is not None:
     # Visualización 3D con agujas agregables
     if show_3d:
         resized = resize(original, (64, 64, 64), anti_aliasing=True)
-
         if 'needles' not in st.session_state:
             st.session_state['needles'] = []
 
+        # Formulario para agregar agujas
         with st.expander("Agregar aguja 3D"):
-            col_a1, col_a2 = st.columns(2)
-            with col_a1:
+            c1, c2 = st.columns(2)
+            with c1:
                 x1 = st.number_input("X1", 0.0, 64.0, 32.0)
                 y1 = st.number_input("Y1", 0.0, 64.0, 32.0)
                 z1 = st.number_input("Z1", 0.0, 64.0, 32.0)
-            with col_a2:
+            with c2:
                 x2 = st.number_input("X2", 0.0, 64.0, 32.0)
                 y2 = st.number_input("Y2", 0.0, 64.0, 32.0)
                 z2 = st.number_input("Z2", 0.0, 64.0, 32.0)
             if st.button("Agregar Aguja", key="add_manual"):
-                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
-                st.session_state['needles'].append({
-                    'points': ((x1, y1, z1), (x2, y2, z2)),
-                    'color': color
-                })
-            if st.button("Generar Aguja Aleatoria", key="add_random"):
-                xa = random.uniform(7, 35)
-                ya = random.uniform(7, 35)
-                za = random.uniform(7, 35)
-                xb = random.uniform(30, 45)
-                yb = random.uniform(30, 45)
-                zb = random.uniform(30, 45)
-                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
-                st.session_state['needles'].append({
-                    'points': ((xa, ya, za), (xb, yb, zb)),
-                    'color': color
-                })
+                st.session_state['needles'].append({'points': ((x1,y1,z1),(x2,y2,z2)), 'color': "#{:06x}".format(random.randint(0,0xFFFFFF)), 'curved': False})
+            if st.button("Generar Aleatoria", key="add_random"):
+                xa, ya, za = random.uniform(7,35), random.uniform(7,35), random.uniform(7,35)
+                xb, yb, zb = random.uniform(30,45), random.uniform(30,45), random.uniform(30,45)
+                st.session_state['needles'].append({'points': ((xa,ya,za),(xb,yb,zb)), 'color': "#{:06x}".format(random.randint(0,0xFFFFFF)), 'curved': False})
 
-        xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
-        fig3d = go.Figure(data=[
-            go.Volume(
-                x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-                value=resized.flatten(), opacity=0.1,
-                surface_count=15, colorscale='Gray'
-            )
-        ])
+        # Tabla editable con opción curva
+        st.markdown('### Registro de agujas')
+        df = pd.DataFrame([{
+            'ID': i,
+            'X1': round(pts[0][0],1),'Y1':round(pts[0][1],1),'Z1':round(pts[0][2],1),
+            'X2': round(pts[1][0],1),'Y2':round(pts[1][1],1),'Z2':round(pts[1][2],1),
+            'Color': d['color'],'Curva': d['curved'],'Eliminar': False
+        } for i,d in enumerate(st.session_state['needles'], start=1) for pts in [d['points']]] )
+        edited = st.data_editor(df, use_container_width=True)
+        # Actualizar estado
+        st.session_state['needles'] = []
+        for _, r in edited.iterrows():
+            if not r['Eliminar']:
+                pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
+                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': r['Curva']})
 
-        for needle in st.session_state['needles']:
-            (x1, y1, z1), (x2, y2, z2) = needle['points']
-            col = needle['color']
-            fig3d.add_trace(
-                go.Scatter3d(
-                    x=[x1, x2], y=[y1, y2], z=[z1, z2],
-                    mode='markers+lines',
-                    marker=dict(size=5, color=col),
-                    line=dict(width=3, color=col)
-                )
-            )
-
-        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+        # Configurar volumen y dibujar
+        xg, yg, zg = np.mgrid[0:n_ax, 0:n_cor, 0:n_sag]
+        fig3d = go.Figure(data=[go.Volume(x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
+                                          value=resized.flatten(), opacity=0.1, surface_count=15, colorscale='Gray')])
+        for d in st.session_state['needles']:
+            (x1,y1,z1),(x2,y2,z2) = d['points']; col = d['color']
+            if d['curved']:
+                t = np.linspace(0,1,30)
+                xs = x1*(1-t)+x2*t; ys = y1*(1-t)+y2*t
+                zs = z1*(1-t)+z2*t + 5*np.sin(np.pi*t)
+            else:
+                xs, ys, zs = [x1,x2], [y1,y2], [z1,z2]
+            fig3d.add_trace(go.Scatter3d(x=xs, y=ys, z=zs, mode='lines+markers', marker=dict(size=4,color=col), line=dict(width=3,color=col)))
+        fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
-
-        st.markdown('### Registro de agujas')
-        rows = []
-        for i, needle in enumerate(st.session_state['needles'], start=1):
-            (x1, y1, z1), (x2, y2, z2) = needle['points']
-            rows.append({
-                'ID': i,
-                'X1': round(x1, 1),
-                'Y1': round(y1, 1),
-                'Z1': round(z1, 1),
-                'X2': round(x2, 1),
-                'Y2': round(y2, 1),
-                'Z2': round(z2, 1),
-                'Color': needle['color'],
-                'Eliminar': False
-            })
-        df = pd.DataFrame(rows)
-        edited_df = st.data_editor(df, use_container_width=True)
-        new_needles = []
-        for _, row in edited_df.iterrows():
-            if not row['Eliminar']:
-                pts = ((row['X1'], row['Y1'], row['Z1']), (row['X2'], row['Y2'], row['Z2']))
-                new_needles.append({'points': pts, 'color': row['Color']})
-        st.session_state['needles'] = new_needles
 
 # Pie de página
 st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
