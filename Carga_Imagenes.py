@@ -87,7 +87,7 @@ if dirname:
 if img is not None:
     n_ax, n_cor, n_sag = img.shape
     mn, mx = float(img.min()), float(img.max())
-    default_ww, default_wc = mx-mn, mn + (mx-nm)/2
+    default_ww, default_wc = mx - mn, mn + (mx - mn) / 2
 
     # Seleccionar cortes
     sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
@@ -158,54 +158,3 @@ if img is not None:
                 x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
                 value=resized.flatten(),
                 opacity=0.1, surface_count=15, colorscale='Gray'
-            )
-        ])
-
-        # Dibujar agujas
-        for needle in st.session_state['needles']:
-            (x1, y1, z1), (x2, y2, z2) = needle['points']
-            col = needle['color']
-            fig3d.add_trace(
-                go.Scatter3d(
-                    x=[x1, x2], y=[y1, y2], z=[z1, z2],
-                    mode='lines+markers',
-                    marker=dict(size=5, color=col),
-                    line=dict(width=3, color=col)
-                )
-            )
-
-        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
-        st.subheader('Vista 3D')
-        st.plotly_chart(fig3d, use_container_width=True)
-
-# Pie de página
-st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
-st.markdown("""
-<hr>
-<div style="text-align:center;color:#28aec5;font-size:50px;">
-    BrachyCervix -
-    Semiautomátización y visor para procesos de braquiterapia enfocados en el Cervix
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Proyecto asignatura medialab 3
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Universidad EAFIT 
-</div>
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    Clinica Las Américas AUNA 
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Nicolás Ramirez 
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-     - Alejandra Montiel
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-     - Maria Camila Diaz
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Maria Paula Jaimes
-</div>
-""", unsafe_allow_html=True)
