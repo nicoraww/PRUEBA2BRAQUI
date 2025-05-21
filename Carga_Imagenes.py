@@ -10,6 +10,7 @@ import streamlit as st
 import SimpleITK as sitk
 from skimage.transform import resize
 import plotly.graph_objects as go
+import pandas as pd
 
 st.set_page_config(layout="wide", page_title="BrachyCervix")
 
@@ -194,20 +195,37 @@ if img is not None:
                 )
             )
 
-        # Mostrar vista 3D una sola vez
+        # Mostrar vista 3D
         fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
 
-        # Registro de agujas
+        # Registro de agujas como tabla editable
         st.markdown('### Registro de agujas')
-        if st.session_state['needles']:
-            for i, needle in enumerate(st.session_state['needles'], start=1):
-                (x1, y1, z1), (x2, y2, z2) = needle['points']
-                color = needle['color']
-                st.markdown(f"- **Aguja {i}**: Punto A=({x1:.1f}, {y1:.1f}, {z1:.1f}), Punto B=({x2:.1f}, {y2:.1f}, {z2:.1f}), Color=`{color}`")
-        else:
-            st.markdown("*No hay agujas registradas.*")
+        # Preparar DataFrame con columnas X1,Y1,Z1,X2,Y2,Z2,Color,Eliminar
+        rows = []
+        for i, needle in enumerate(st.session_state['needles'], start=1):
+            (x1, y1, z1), (x2, y2, z2) = needle['points']
+            rows.append({
+                'ID': i,
+                'X1': round(x1, 1),
+                'Y1': round(y1, 1),
+                'Z1': round(z1, 1),
+                'X2': round(x2, 1),
+                'Y2': round(y2, 1),
+                'Z2': round(z2, 1),
+                'Color': needle['color'],
+                'Eliminar': False
+            })
+        df = pd.DataFrame(rows)
+        edited_df = st.experimental_data_editor(df, num_rows='dynamic', use_container_width=True)
+        # Procesar cambios
+        new_needles = []
+        for _, row in edited_df.iterrows():
+            if not row['Eliminar']:
+                pts = ((row['X1'], row['Y1'], row['Z1']), (row['X2'], row['Y2'], row['Z2']))
+                new_needles.append({'points': pts, 'color': row['Color']})
+        st.session_state['needles'] = new_needles
 
 # Pie de página
 st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
@@ -233,8 +251,3 @@ st.markdown("""
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Camila Diaz
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Maria Paula Jaimes
-</div>
-""", unsafe_allow_html=True)
