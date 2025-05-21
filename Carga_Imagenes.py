@@ -159,7 +159,6 @@ if img is not None:
                     'color': color
                 })
             if st.button("Generar Aguja Aleatoria", key="add_random"):
-                # Punto A aleatorio en [7,35], Punto B aleatorio en [30,45]
                 xa = random.uniform(7, 35)
                 ya = random.uniform(7, 35)
                 za = random.uniform(7, 35)
@@ -172,7 +171,6 @@ if img is not None:
                     'color': color
                 })
 
-        # Crear figura 3D
         xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
         fig3d = go.Figure(data=[
             go.Volume(
@@ -182,7 +180,6 @@ if img is not None:
             )
         ])
 
-        # Dibujar agujas (puntos y líneas)
         for needle in st.session_state['needles']:
             (x1, y1, z1), (x2, y2, z2) = needle['points']
             col = needle['color']
@@ -195,14 +192,11 @@ if img is not None:
                 )
             )
 
-        # Mostrar vista 3D
         fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
 
-        # Registro de agujas como tabla editable
         st.markdown('### Registro de agujas')
-        # Preparar DataFrame con columnas X1,Y1,Z1,X2,Y2,Z2,Color,Eliminar
         rows = []
         for i, needle in enumerate(st.session_state['needles'], start=1):
             (x1, y1, z1), (x2, y2, z2) = needle['points']
@@ -218,8 +212,7 @@ if img is not None:
                 'Eliminar': False
             })
         df = pd.DataFrame(rows)
-        edited_df = st.experimental_data_editor(df, num_rows='dynamic', use_container_width=True)
-        # Procesar cambios
+        edited_df = st.data_editor(df, use_container_width=True)
         new_needles = []
         for _, row in edited_df.iterrows():
             if not row['Eliminar']:
@@ -251,8 +244,3 @@ st.markdown("""
 </div>
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Camila Diaz
-</div>
-<div style="text-align:center;color:#28aec5;font-size:20px;">
-    - Maria Paula Jaimes
-</div>
-""", unsafe_allow_html=True)
