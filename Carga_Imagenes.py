@@ -6,7 +6,6 @@ import random
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 import streamlit as st
 import SimpleITK as sitk
 from skimage.transform import resize
@@ -182,10 +181,7 @@ if img is not None:
                 )
             )
 
-        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
-        st.subheader('Vista 3D')
-        st.plotly_chart(fig3d, use_container_width=True)
-
+        # Mostrar vista 3D una sola vez
         fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
         st.subheader('Vista 3D')
         st.plotly_chart(fig3d, use_container_width=True)
