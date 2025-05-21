@@ -90,138 +90,93 @@ if img is not None:
     # Seleccionar cortes
     sync = st.sidebar.checkbox('Sincronizar cortes', value=True)
     if sync:
-        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial', 'Coronal', 'Sagital'))
-        lims = {'Axial': n_ax-1, 'Coronal': n_cor-1, 'Sagital': n_sag-1}
-        mids = {'Axial': n_ax//2, 'Coronal': n_cor//2, 'Sagital': n_sag//2}
+        corte = st.sidebar.radio('Corte (sincronizado)', ('Axial','Coronal','Sagital'))
+        lims = {'Axial':n_ax-1,'Coronal':n_cor-1,'Sagital':n_sag-1}
+        mids = {'Axial':n_ax//2,'Coronal':n_cor//2,'Sagital':n_sag//2}
         idx_slider = st.sidebar.slider('Corte (sincronizado)', 0, lims[corte], mids[corte])
-        slice_idx = st.sidebar.number_input('Corte (sincronizado)', 0, lims[corte], idx_slider)
+        slice_idx = st.sidebar.number_input('Corte (sincronizado)',0,lims[corte],idx_slider)
     else:
-        corte = st.sidebar.radio('Selecciona el tipo de corte', ('Axial', 'Coronal', 'Sagital'))
-        if corte == 'Axial':
-            slice_idx = st.sidebar.slider('Índice Axial', 0, n_ax-1, n_ax//2)
-        elif corte == 'Coronal':
-            slice_idx = st.sidebar.slider('Índice Coronal', 0, n_cor-1, n_cor//2)
-        else:
-            slice_idx = st.sidebar.slider('Índice Sagital', 0, n_sag-1, n_sag//2)
+        corte = st.sidebar.radio('Selecciona el tipo de corte',('Axial','Coronal','Sagital'))
+        if corte=='Axial': slice_idx=st.sidebar.slider('Índice Axial',0,n_ax-1,n_ax//2)
+        elif corte=='Coronal': slice_idx=st.sidebar.slider('Índice Coronal',0,n_cor-1,n_cor//2)
+        else: slice_idx=st.sidebar.slider('Índice Sagital',0,n_sag-1,n_sag//2)
 
     # Opciones adicionales
-    show_3d = st.sidebar.checkbox('Mostrar visualización 3D', value=True)
-    invert = st.sidebar.checkbox('Invertir colores (Negativo)', value=False)
-    window_type = st.sidebar.selectbox('Tipo de ventana', ('Default', 'Abdomen', 'Hueso', 'Pulmón'))
-    if window_type == 'Default':
-        ww, wc = default_ww, default_wc
-    elif window_type == 'Abdomen':
-        ww, wc = 400, 40
-    elif window_type == 'Hueso':
-        ww, wc = 2000, 500
-    else:
-        ww, wc = 1500, -600
+    show_3d=st.sidebar.checkbox('Mostrar visualización 3D',True)
+    invert=st.sidebar.checkbox('Invertir colores (Negativo)',False)
+    window_type=st.sidebar.selectbox('Tipo de ventana',('Default','Abdomen','Hueso','Pulmón'))
+    if window_type=='Default': ww,wc=default_ww,default_wc
+    elif window_type=='Abdomen': ww,wc=400,40
+    elif window_type=='Hueso': ww,wc=2000,500
+    else: ww,wc=1500,-600
 
-    # Preparar cortes 2D
-    axial = img[slice_idx, :, :] if corte == 'Axial' else img[n_ax//2, :, :]
-    coronal = img[:, slice_idx, :] if corte == 'Coronal' else img[:, n_cor//2, :]
-    sagital = img[:, :, slice_idx] if corte == 'Sagital' else img[:, :, n_sag//2]
-    cortes = [('Axial', axial), ('Coronal', coronal), ('Sagital', sagital)]
-
-    cols = st.columns(3)
-    for col, (name, mat) in zip(cols, cortes):
+    # Mostrar cortes 2D
+    axial = img[slice_idx,:,:] if corte=='Axial' else img[n_ax//2,:,:]
+    coronal = img[:,slice_idx,:] if corte=='Coronal' else img[:,n_cor//2,:]
+    sagital = img[:,:,slice_idx] if corte=='Sagital' else img[:,:,n_sag//2]
+    cols=st.columns(3)
+    for col,(name,mat) in zip(cols,[('Axial',axial),('Coronal',coronal),('Sagital',sagital)]]):
         with col:
-            st.markdown(f"{name}")
-            fig, ax = plt.subplots()
-            ax.axis('off')
-            norm = apply_window_level(mat, ww, wc)
-            if invert:
-                norm = 1 - norm
-            ax.imshow(norm, cmap='gray', origin='lower')
-            st.pyplot(fig)
+            st.markdown(name)
+            fig,ax=plt.subplots();ax.axis('off')
+            norm=apply_window_level(mat,ww,wc)
+            if invert: norm=1-norm
+            ax.imshow(norm,cmap='gray',origin='lower'); st.pyplot(fig)
 
-    # Visualización 3D con agujas agregables
+    # Visualización 3D
     if show_3d:
-        resized = resize(original, (64, 64, 64), anti_aliasing=True)
+        resized=resize(original,(64,64,64),anti_aliasing=True)
+        if 'needles' not in st.session_state: st.session_state['needles']=[]
+        # Formulario
+        with st.expander('Agregar aguja 3D'):
+            c1,c2=st.columns(2)
+            with c1:
+                x1=st.number_input('X1',0.0,64.0,32.0)
+                y1=st.number_input('Y1',0.0,64.0,32.0)
+                z1=st.number_input('Z1',0.0,64.0,32.0)
+            with c2:
+                x2=st.number_input('X2',0.0,64.0,32.0)
+                y2=st.number_input('Y2',0.0,64.0,32.0)
+                z2=st.number_input('Z2',0.0,64.0,32.0)
+            if st.button('Agregar Aguja',key='add_manual'):
+                st.session_state['needles'].append({'points':((x1,y1,z1),(x2,y2,z2)),'color':f"#{random.randint(0,0xFFFFFF):06x}",'curved':False})
+            if st.button('Generar Aleatoria',key='add_random'):
+                xa,ya,za=random.uniform(7,35),random.uniform(7,35),random.uniform(7,35)
+                xb,yb,zb=random.uniform(30,45),random.uniform(30,45),random.uniform(30,45)
+                st.session_state['needles'].append({'points':((xa,ya,za),(xb,yb,zb)),'color':f"#{random.randint(0,0xFFFFFF):06x}",'curved':False})
 
-        if 'needles' not in st.session_state:
-            st.session_state['needles'] = []
-
-        with st.expander("Agregar aguja 3D"):
-            col_a1, col_a2 = st.columns(2)
-            with col_a1:
-                x1 = st.number_input("X1", 0.0, 64.0, 32.0)
-                y1 = st.number_input("Y1", 0.0, 64.0, 32.0)
-                z1 = st.number_input("Z1", 0.0, 64.0, 32.0)
-            with col_a2:
-                x2 = st.number_input("X2", 0.0, 64.0, 32.0)
-                y2 = st.number_input("Y2", 0.0, 64.0, 32.0)
-                z2 = st.number_input("Z2", 0.0, 64.0, 32.0)
-            if st.button("Agregar Aguja", key="add_manual"):
-                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
-                st.session_state['needles'].append({
-                    'points': ((x1, y1, z1), (x2, y2, z2)),
-                    'color': color
-                })
-            if st.button("Generar Aguja Aleatoria", key="add_random"):
-                xa = random.uniform(7, 35)
-                ya = random.uniform(7, 35)
-                za = random.uniform(7, 35)
-                xb = random.uniform(30, 45)
-                yb = random.uniform(30, 45)
-                zb = random.uniform(30, 45)
-                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
-                st.session_state['needles'].append({
-                    'points': ((xa, ya, za), (xb, yb, zb)),
-                    'color': color
-                })
-
-        xg, yg, zg = np.mgrid[0:64, 0:64, 0:64]
-        fig3d = go.Figure(data=[
-            go.Volume(
-                x=xg.flatten(), y=yg.flatten(), z=zg.flatten(),
-                value=resized.flatten(), opacity=0.1,
-                surface_count=15, colorscale='Gray'
-            )
-        ])
-
-        for needle in st.session_state['needles']:
-            (x1, y1, z1), (x2, y2, z2) = needle['points']
-            col = needle['color']
-            fig3d.add_trace(
-                go.Scatter3d(
-                    x=[x1, x2], y=[y1, y2], z=[z1, z2],
-                    mode='markers+lines',
-                    marker=dict(size=5, color=col),
-                    line=dict(width=3, color=col)
-                )
-            )
-
-        fig3d.update_layout(margin=dict(l=0, r=0, b=0, t=0))
-        st.subheader('Vista 3D')
-        st.plotly_chart(fig3d, use_container_width=True)
-
+        # Construir tabla con tipo curva/recta
         st.markdown('### Registro de agujas')
-        rows = []
-        for i, needle in enumerate(st.session_state['needles'], start=1):
-            (x1, y1, z1), (x2, y2, z2) = needle['points']
-            rows.append({
-                'ID': i,
-                'X1': round(x1, 1),
-                'Y1': round(y1, 1),
-                'Z1': round(z1, 1),
-                'X2': round(x2, 1),
-                'Y2': round(y2, 1),
-                'Z2': round(z2, 1),
-                'Color': needle['color'],
-                'Eliminar': False
-            })
-        df = pd.DataFrame(rows)
-        edited_df = st.data_editor(df, use_container_width=True)
-        new_needles = []
-        for _, row in edited_df.iterrows():
-            if not row['Eliminar']:
-                pts = ((row['X1'], row['Y1'], row['Z1']), (row['X2'], row['Y2'], row['Z2']))
-                new_needles.append({'points': pts, 'color': row['Color']})
-        st.session_state['needles'] = new_needles
+        df=pd.DataFrame([{**{'ID':i+1,'X1':round(p[0][0],1),'Y1':round(p[0][1],1),'Z1':round(p[0][2],1),
+                              'X2':round(p[1][0],1),'Y2':round(p[1][1],1),'Z2':round(p[1][2],1),
+                              'Color':d['color'],'Tipo':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
+                             for i,d in enumerate(st.session_state['needles']) for p in [d['points']]])
+        edited=st.data_editor(df,use_container_width=True)
+        # Actualizar estado
+        st.session_state['needles']=[]
+        for _,r in edited.iterrows():
+            if not r['Eliminar']:
+                pts=((r['X1'],r['Y1'],r['Z1']),(r['X2'],r['Y2'],r['Z2']))
+                st.session_state['needles'].append({'points':pts,'color':r['Color'],'curved':(r['Tipo']=='Curva')})
+
+        # Dibujar volumetría y agujas
+        xg,yg,zg=np.mgrid[0:n_ax,0:n_cor,0:n_sag]
+        fig3d=go.Figure(data=[go.Volume(x=xg.flatten(),y=yg.flatten(),z=zg.flatten(),
+                                         value=resized.flatten(),opacity=0.1,surface_count=15,colorscale='Gray')])
+        for d in st.session_state['needles']:
+            (x1,y1,z1),(x2,y2,z2)=d['points'];col=d['color']
+            if d['curved']:
+                t=np.linspace(0,1,30); xs=x1*(1-t)+x2*t; ys=y1*(1-t)+y2*t
+                zs=z1*(1-t)+z2*t+5*np.sin(np.pi*t)
+            else:
+                xs,ys,zs=[x1,x2],[y1,y2],[z1,z2]
+            fig3d.add_trace(go.Scatter3d(x=xs,y=ys,z=zs,mode='lines+markers',marker=dict(size=4,color=col),line=dict(width=3,color=col)))
+        fig3d.update_layout(margin=dict(l=0,r=0,b=0,t=0))
+        st.subheader('Vista 3D')
+        st.plotly_chart(fig3d,use_container_width=True)
 
 # Pie de página
-st.markdown('<p class="giant-title">BrachyCervix</p>', unsafe_allow_html=True)
+st.markdown('<p class="giant-title">BrachyCervix</p>',unsafe_allow_html=True)
 st.markdown("""
 <hr>
 <div style="text-align:center;color:#28aec5;font-size:50px;">
@@ -248,4 +203,4 @@ st.markdown("""
 <div style="text-align:center;color:#28aec5;font-size:20px;">
     - Maria Paula Jaimes
 </div>
-""", unsafe_allow_html=True)
+""",unsafe_allow_html=True)
