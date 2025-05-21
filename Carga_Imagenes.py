@@ -151,10 +151,23 @@ if img is not None:
                 x2 = st.number_input("X2", 0.0, 64.0, 32.0)
                 y2 = st.number_input("Y2", 0.0, 64.0, 32.0)
                 z2 = st.number_input("Z2", 0.0, 64.0, 32.0)
-            if st.button("Agregar Aguja"):
+            if st.button("Agregar Aguja", key="add_manual"):
                 color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
                 st.session_state['needles'].append({
                     'points': ((x1, y1, z1), (x2, y2, z2)),
+                    'color': color
+                })
+            if st.button("Generar Aguja Aleatoria", key="add_random"):
+                # Punto A aleatorio en [7,35], Punto B aleatorio en [30,45]
+                xa = random.uniform(7, 35)
+                ya = random.uniform(7, 35)
+                za = random.uniform(7, 35)
+                xb = random.uniform(30, 45)
+                yb = random.uniform(30, 45)
+                zb = random.uniform(30, 45)
+                color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
+                st.session_state['needles'].append({
+                    'points': ((xa, ya, za), (xb, yb, zb)),
                     'color': color
                 })
 
