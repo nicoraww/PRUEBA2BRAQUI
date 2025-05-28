@@ -151,6 +151,36 @@ if img is not None:
                              for i,d in enumerate(st.session_state['needles'])
                              for p,q in [d['points']]])
         edited = st.data_editor(df, use_container_width=True)
+
+                # Tabla editable
+        st.markdown('### Registro de agujas')
+        df = pd.DataFrame([{**{'ID':i+1,
+                                'X1':round(p[0],1),'Y1':round(p[1],1),'Z1':round(p[2],1),
+                                'X2':round(q[0],1),'Y2':round(q[1],1),'Z2':round(q[2],1),
+                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
+                             for i,d in enumerate(st.session_state['needles'])
+                             for p,q in [d['points']]])
+        edited = st.data_editor(df, use_container_width=True)
+        # Actualizar estado
+        st.session_state['needles'] = []
+        for _, r in edited.iterrows():
+            if not r['Eliminar']:
+                pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
+                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma']=='Curva')})
+
+        # ← Aquí añadimos la exportación a Excel
+        output = io.BytesIO()
+        # Usamos pandas.ExcelWriter para más flexibilidad
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            edited.to_excel(writer, index=False, sheet_name='Agujas')
+        output.seek(0)
+        st.download_button(
+            label="📥 Descargar dashboard de agujas (.xlsx)",
+            data=output,
+            file_name="dashboard_agujas.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
         # Actualizar estado
         st.session_state['needles'] = []
         for _, r in edited.iterrows():
