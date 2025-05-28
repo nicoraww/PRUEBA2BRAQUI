@@ -86,8 +86,12 @@ if img is not None:
         idx = st.sidebar.slider('Índice', 0, limits[orientation]-1, limits[orientation]//2)
     else:
         orientation = st.sidebar.selectbox('Corte', ['Axial','Coronal','Sagital'])
-        idx = st.sidebar.slider('Índice', 0, img.shape[['Axial','Coronal','Sagital'].index(orientation)]-1,
-                                 img.shape[['Axial','Coronal','Sagital'].index(orientation)]//2)
+        idx = st.sidebar.slider(
+            'Índice',
+            0,
+            img.shape[['Axial','Coronal','Sagital'].index(orientation)]-1,
+            img.shape[['Axial','Coronal','Sagital'].index(orientation)]//2
+        )
     invert = st.sidebar.checkbox('Negativo', False)
     wtype = st.sidebar.selectbox('Tipo ventana', ['Default','Abdomen','Hueso','Pulmón'])
     presets = {'Abdomen':(400,40),'Hueso':(2000,500),'Pulmón':(1500,-600)}
@@ -101,11 +105,14 @@ if img is not None:
     cols = st.columns(3)
     for col,(name,data) in zip(cols, slices.items()):
         with col:
-            st.markdown(name)
-            fig, ax = plt.subplots(); ax.axis('off')
+            st.markdown(f"### {name}")
+            fig, ax = plt.subplots()
+            ax.axis('off')
             img2d = apply_window(data, ww, wc)
-            if invert: img2d = 1 - img2d
-            ax.imshow(img2d, cmap='gray', origin='lower'); st.pyplot(fig)
+            if invert:
+                img2d = 1 - img2d
+            ax.imshow(img2d, cmap='gray', origin='lower')
+            st.pyplot(fig)
 
     # 3D y agujas
     if st.sidebar.checkbox('Mostrar 3D', True):
@@ -113,7 +120,7 @@ if img is not None:
         if 'needles' not in st.session_state:
             st.session_state['needles'] = []
 
-        # Controles de creación con cantidad múltiple
+        # Controles de creación
         with st.expander('Nueva aguja'):
             mode = st.radio('Modo', ['Manual','Aleatoria'], horizontal=True)
             shape = st.radio('Forma', ['Recta','Curva'], horizontal=True)
@@ -129,7 +136,6 @@ if img is not None:
                     y2 = st.number_input('Y2', 0.0, 64.0, 32.0)
                     z2 = st.number_input('Z2', 0.0, 64.0, 32.0)
             if st.button('Agregar aguja'):
-                # Generar una o varias según modo
                 times = count if mode == 'Aleatoria' else 1
                 for _ in range(times):
                     if mode == 'Aleatoria':
@@ -142,51 +148,37 @@ if img is not None:
                         'curved': (shape == 'Curva')
                     })
 
-        # Tabla editable
+        # Tabla editable con key único
         st.markdown('### Registro de agujas')
-        df = pd.DataFrame([{**{'ID':i+1,
-                                'X1':round(p[0],1),'Y1':round(p[1],1),'Z1':round(p[2],1),
-                                'X2':round(q[0],1),'Y2':round(q[1],1),'Z2':round(q[2],1),
-                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
-                             for i,d in enumerate(st.session_state['needles'])
-                             for p,q in [d['points']]])
-        edited = st.data_editor(df, use_container_width=True)
+        df = pd.DataFrame([
+            {
+                'ID': i+1,
+                'X1': round(p[0],1), 'Y1': round(p[1],1), 'Z1': round(p[2],1),
+                'X2': round(q[0],1), 'Y2': round(q[1],1), 'Z2': round(q[2],1),
+                'Color': d['color'],
+                'Forma': 'Curva' if d['curved'] else 'Recta',
+                'Eliminar': False
+            }
+            for i, d in enumerate(st.session_state['needles'])
+            for p, q in [d['points']]
+        ])
 
-                # Tabla editable
-        st.markdown('### Registro de agujas')
-        df = pd.DataFrame([{**{'ID':i+1,
-                                'X1':round(p[0],1),'Y1':round(p[1],1),'Z1':round(p[2],1),
-                                'X2':round(q[0],1),'Y2':round(q[1],1),'Z2':round(q[2],1),
-                                'Color':d['color'],'Forma':('Curva' if d['curved'] else 'Recta'),'Eliminar':False}}
-                             for i,d in enumerate(st.session_state['needles'])
-                             for p,q in [d['points']]])
-        edited = st.data_editor(df, use_container_width=True)
-        # Actualizar estado
-        st.session_state['needles'] = []
-        for _, r in edited.iterrows():
-            if not r['Eliminar']:
-                pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
-                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma']=='Curva')})
-
-        # ← Aquí añadimos la exportación a Excel
-        output = io.BytesIO()
-        # Usamos pandas.ExcelWriter para más flexibilidad
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            edited.to_excel(writer, index=False, sheet_name='Agujas')
-        output.seek(0)
-        st.download_button(
-            label="📥 Descargar dashboard de agujas (.xlsx)",
-            data=output,
-            file_name="dashboard_agujas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        edited = st.data_editor(
+            df,
+            use_container_width=True,
+            key="needle_editor"
         )
 
         # Actualizar estado
         st.session_state['needles'] = []
         for _, r in edited.iterrows():
             if not r['Eliminar']:
-                pts = ((r['X1'],r['Y1'],r['Z1']), (r['X2'],r['Y2'],r['Z2']))
-                st.session_state['needles'].append({'points': pts, 'color': r['Color'], 'curved': (r['Forma']=='Curva')})
+                pts = ((r['X1'], r['Y1'], r['Z1']), (r['X2'], r['Y2'], r['Z2']))
+                st.session_state['needles'].append({
+                    'points': pts,
+                    'color': r['Color'],
+                    'curved': (r['Forma'] == 'Curva')
+                })
 
         # Render 3D
         xg, yg, zg = np.mgrid[0:64,0:64,0:64]
@@ -197,8 +189,8 @@ if img is not None:
         for d in st.session_state['needles']:
             (x1,y1,z1),(x2,y2,z2) = d['points']
             if d['curved']:
-                t = np.linspace(0,1,50);
-                xs = x1*(1-t)+x2*t; ys = y1*(1-t)+y2*t;
+                t = np.linspace(0,1,50)
+                xs = x1*(1-t)+x2*t; ys = y1*(1-t)+y2*t
                 zs = z1*(1-t)+z2*t + 5*np.sin(np.pi*t)
             else:
                 xs, ys, zs = [x1,x2], [y1,y2], [z1,z2]
